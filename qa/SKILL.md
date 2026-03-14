@@ -3,14 +3,26 @@ name: qa
 version: 1.0.0
 description: |
   웹 애플리케이션을 체계적으로 QA 테스트합니다. "qa", "QA", "이 사이트 테스트",
-  "버그 찾기", "도그푸딩", 또는 품질 검토 요청 시 사용합니다. 세 가지 모드:
-  full (체계적 탐험), quick (30초 스모크 테스트), regression (기준선 대비 비교).
+  "버그 찾기", "도그푸딩", 또는 품질 검토 요청 시 사용합니다. 네 가지 모드:
+  diff-aware (기능 브랜치에서 git diff 기반 자동 타깃팅), full (체계적 탐험),
+  quick (30초 스모크 테스트), regression (기준선 대비 비교).
   건강 점수, 스크린샷, 재현 단계를 갖춘 구조화된 리포트를 생성합니다.
 allowed-tools:
   - Bash
   - Read
   - Write
+  - AskUserQuestion
 ---
+
+## Update Check (먼저 실행)
+
+```bash
+_UPD=$(~/.claude/skills/gstack/bin/gstack-update-check 2>/dev/null || .claude/skills/gstack/bin/gstack-update-check 2>/dev/null || true)
+[ -n "$_UPD" ] && echo "$_UPD" || true
+```
+
+출력이 `UPGRADE_AVAILABLE <old> <new>`이면 `~/.claude/skills/gstack/gstack-upgrade/SKILL.md`를 읽고 "Inline upgrade flow"를 따릅니다.
+`JUST_UPGRADED <from> <to>`이면 현재 버전을 사용자에게 알리고 계속합니다.
 
 # /qa: 체계적인 QA 테스트
 
@@ -22,21 +34,32 @@ allowed-tools:
 
 | 파라미터 | 기본값 | 오버라이드 예시 |
 |---------|--------|--------------|
-| 대상 URL | (필수) | `https://myapp.com`, `http://localhost:3000` |
+| 대상 URL | (자동 감지 또는 필수) | `https://myapp.com`, `http://localhost:3000` |
 | 모드 | full | `--quick`, `--regression .gstack/qa-reports/baseline.json` |
 | 출력 디렉토리 | `.gstack/qa-reports/` | `Output to /tmp/qa` |
-| 범위 | 전체 앱 | `결제 페이지에 집중` |
+| 범위 | 전체 앱(또는 diff 범위) | `결제 페이지에 집중` |
 | 인증 | 없음 | `user@example.com으로 로그인`, `cookies.json에서 쿠키 가져오기` |
 
-**browse 바이너리 찾기:**
+**URL 없이 기능 브랜치에서 `/qa`를 실행하면 자동으로 diff-aware 모드에 진입합니다.**
+
+## SETUP (browse 커맨드 전에 반드시 실행)
 
 ```bash
-B=$(browse/bin/find-browse 2>/dev/null || ~/.claude/skills/gstack/browse/bin/find-browse 2>/dev/null)
-if [ -z "$B" ]; then
-  echo "오류: browse 바이너리를 찾을 수 없습니다"
-  exit 1
+_ROOT=$(git rev-parse --show-toplevel 2>/dev/null)
+B=""
+[ -n "$_ROOT" ] && [ -x "$_ROOT/.claude/skills/gstack/browse/dist/browse" ] && B="$_ROOT/.claude/skills/gstack/browse/dist/browse"
+[ -z "$B" ] && B=~/.claude/skills/gstack/browse/dist/browse
+if [ -x "$B" ]; then
+  echo "READY: $B"
+else
+  echo "NEEDS_SETUP"
 fi
 ```
+
+`NEEDS_SETUP`인 경우:
+1. 사용자에게 "gstack browse는 1회 빌드가 필요합니다(~10초). 진행할까요?"라고 묻고 대기합니다.
+2. `cd <SKILL_DIR> && ./setup` 실행.
+3. `bun`이 없으면 `curl -fsSL https://bun.sh/install | bash` 실행.
 
 **출력 디렉토리 생성:**
 
@@ -49,7 +72,24 @@ mkdir -p "$REPORT_DIR/screenshots"
 
 ## 모드
 
-### Full (기본값)
+### Diff-aware (기능 브랜치에서 URL 없이 실행 시 자동)
+
+가장 일반적인 사용 사례입니다. 기능 브랜치에서 `/qa`를 실행하고 URL을 주지 않으면 다음 순서로 동작합니다:
+
+1. `git diff main...HEAD --name-only`, `git log main..HEAD --oneline`으로 변경 범위를 파악합니다.
+2. 변경 파일에서 영향받는 페이지/라우트를 추론합니다.
+3. 로컬 앱 주소를 탐지합니다 (`localhost:3000`, `4000`, `8080` 순으로 시도).
+4. 영향받는 페이지를 우선 테스트합니다:
+   - 페이지 이동
+   - 스크린샷 수집
+   - 콘솔 에러 확인
+   - 상호작용 플로우 검증
+   - `snapshot -D`로 전후 변화 확인
+5. 결과를 "브랜치 변경사항 기준 테스트"로 요약합니다.
+
+URL이 함께 주어지면 해당 URL을 베이스로 사용하되, 여전히 diff 범위 중심으로 테스트합니다.
+
+### Full (URL 제공 시 기본값)
 체계적인 탐험. 모든 도달 가능한 페이지를 방문합니다. 5-10개의 잘 증명된 이슈를 문서화합니다. 건강 점수를 생성합니다. 앱 크기에 따라 5-15분 소요됩니다.
 
 ### Quick (`--quick`)

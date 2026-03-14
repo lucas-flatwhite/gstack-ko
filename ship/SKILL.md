@@ -13,6 +13,16 @@ allowed-tools:
   - AskUserQuestion
 ---
 
+## Update Check (먼저 실행)
+
+```bash
+_UPD=$(~/.claude/skills/gstack/bin/gstack-update-check 2>/dev/null || .claude/skills/gstack/bin/gstack-update-check 2>/dev/null || true)
+[ -n "$_UPD" ] && echo "$_UPD"
+```
+
+출력이 `UPGRADE_AVAILABLE <old> <new>`이면 `~/.claude/skills/gstack/gstack-upgrade/SKILL.md`를 읽고 "Inline upgrade flow"를 따릅니다 (업그레이드 여부 AskUserQuestion).
+`JUST_UPGRADED <from> <to>`이면 현재 버전을 사용자에게 알리고 계속합니다.
+
 # Ship: 완전 자동화 배포 워크플로우
 
 `/ship` 워크플로우를 실행합니다. **비대화형, 완전 자동화** 워크플로우입니다. 어떤 단계에서도 확인을 요청하지 않습니다. 사용자가 `/ship`이라고 말했다는 것은 실행하라는 의미입니다. 직선으로 진행하여 마지막에 PR URL을 출력합니다.
@@ -23,6 +33,7 @@ allowed-tools:
 - 테스트 실패 (중지, 실패 표시)
 - 랜딩 전 검토에서 CRITICAL 이슈가 발견되고 사용자가 수정을 선택할 때 (인지 또는 건너뛰기가 아닌)
 - MINOR 또는 MAJOR 버전 업데이트 필요 (물어보기 — Step 4 참조)
+- Greptile 리뷰 코멘트 처리 중 사용자 의사결정이 필요한 경우
 
 **절대 중지하지 않는 경우:**
 - 미커밋 변경사항 (항상 포함)
@@ -155,6 +166,39 @@ EVAL_JUDGE_TIER=full EVAL_VERBOSE=1 bin/test-lane --eval test/evals/<suite>_eval
 
 ---
 
+## Step 3.75: Greptile 리뷰 코멘트 처리 (PR이 있는 경우)
+
+`.claude/skills/review/greptile-triage.md`를 읽고 fetch/filter/classify 절차를 수행합니다.
+
+- PR이 없거나 `gh` 실패/API 에러/코멘트 0개인 경우: 조용히 건너뛰고 Step 4로 진행합니다.
+- 코멘트가 있으면 요약을 출력합니다: `+ N Greptile 코멘트 (X valid, Y fixed, Z FP)`.
+
+분류별 처리:
+
+1. VALID & ACTIONABLE
+- AskUserQuestion으로 A/B/C를 제시합니다:
+  - A) 지금 수정 (권장)
+  - B) 인지하고 그대로 배포
+  - C) 오탐으로 처리
+- A를 선택하면 수정 후 커밋하고, 코멘트에 `"Fixed in <commit-sha>."`로 답글, `~/.gstack/greptile-history.md`에 기록합니다.
+
+2. VALID BUT ALREADY FIXED
+- `"좋은 지적입니다 — <commit-sha>에서 이미 수정되었습니다."`로 자동 답글하고 이력을 기록합니다.
+
+3. FALSE POSITIVE
+- AskUserQuestion으로 A/B/C를 제시합니다:
+  - A) 오탐 사유 답글 (권장)
+  - B) 그래도 수정
+  - C) 무시
+- A를 선택하면 답글 후 이력을 기록합니다.
+
+4. SUPPRESSED
+- 조용히 건너뜁니다.
+
+이 단계에서 실제 코드 수정이 발생했다면 Step 3 테스트를 재실행한 뒤 Step 4로 진행합니다.
+
+---
+
 ## Step 4: 버전 업데이트 (자동 결정)
 
 1. 현재 `VERSION` 파일 읽기 (4자리 형식: `MAJOR.MINOR.PATCH.MICRO`)
@@ -257,6 +301,10 @@ gh pr create --title "<type>: <summary>" --body "$(cat <<'EOF'
 
 ## Eval 결과
 <eval이 실행된 경우: 스위트 이름, 통과/실패 카운트, 비용 대시보드 요약. 건너뛴 경우: "프롬프트 관련 파일 변경 없음 — eval 건너뜀.">
+
+## Greptile 검토
+<Greptile 코멘트가 있었으면 [FIXED] / [FALSE POSITIVE] / [ALREADY FIXED] 요약을 포함>
+<코멘트가 없으면 "Greptile 코멘트 없음">
 
 ## 테스트 계획
 - [x] 모든 Rails 테스트 통과 (N회 실행, 0 실패)

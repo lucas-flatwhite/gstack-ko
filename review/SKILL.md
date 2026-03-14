@@ -14,6 +14,16 @@ allowed-tools:
   - AskUserQuestion
 ---
 
+## Update Check (먼저 실행)
+
+```bash
+_UPD=$(~/.claude/skills/gstack/bin/gstack-update-check 2>/dev/null || .claude/skills/gstack/bin/gstack-update-check 2>/dev/null || true)
+[ -n "$_UPD" ] && echo "$_UPD"
+```
+
+출력이 `UPGRADE_AVAILABLE <old> <new>`이면 `~/.claude/skills/gstack/gstack-upgrade/SKILL.md`를 읽고 "Inline upgrade flow"를 따릅니다 (업그레이드 여부 AskUserQuestion).
+`JUST_UPGRADED <from> <to>`이면 현재 버전을 사용자에게 알리고 계속합니다.
+
 # 랜딩 전 PR 검토
 
 `/review` 워크플로우를 실행합니다. 테스트가 잡아내지 못하는 구조적 이슈를 위해 현재 브랜치의 main 대비 diff를 분석합니다.
@@ -33,6 +43,19 @@ allowed-tools:
 `.claude/skills/review/checklist.md`를 읽습니다.
 
 **파일을 읽을 수 없으면 에러를 보고하고 중지합니다.** 체크리스트 없이 진행하지 않습니다.
+
+---
+
+## Step 2.5: Greptile 리뷰 코멘트 확인
+
+`.claude/skills/review/greptile-triage.md`를 읽고 fetch/filter/classify 절차를 수행합니다.
+
+- PR이 없거나 `gh` 호출 실패/API 에러/코멘트 0개인 경우: 조용히 건너뜁니다.
+- Greptile 코멘트가 있으면 분류 결과를 저장합니다:
+  - VALID & ACTIONABLE
+  - VALID BUT ALREADY FIXED
+  - FALSE POSITIVE
+  - SUPPRESSED
 
 ---
 
@@ -67,6 +90,20 @@ git fetch origin main --quiet
   모든 critical 질문에 답변 후, 각 이슈에 대해 사용자가 선택한 것의 요약을 출력합니다. 사용자가 어떤 이슈에 A(수정)를 선택했다면, 권장 수정사항을 적용합니다. B/C만 선택됐다면 추가 조치 불필요.
 - non-critical 이슈만 발견된 경우: 결과를 출력합니다. 추가 조치 불필요.
 - 이슈가 없는 경우: `랜딩 전 검토: 이슈가 발견되지 않았습니다.`를 출력합니다.
+
+### Greptile 코멘트 처리
+
+Step 2.5에서 Greptile 코멘트를 분류했다면, 기본 결과 출력 뒤에 다음을 추가합니다:
+
+1. 헤더에 Greptile 요약을 포함합니다: `+ N Greptile 코멘트 (X valid, Y fixed, Z FP)`.
+2. VALID & ACTIONABLE은 critical 흐름과 동일하게 처리합니다.
+3. FALSE POSITIVE는 AskUserQuestion으로 다음 옵션을 제시합니다:
+   - A) Greptile에 오탐 사유로 답글 (권장)
+   - B) 그래도 코드 수정
+   - C) 무시
+4. VALID BUT ALREADY FIXED는 `"좋은 지적입니다 — <commit-sha>에서 이미 수정되었습니다."`로 자동 답글합니다.
+5. SUPPRESSED는 조용히 건너뜁니다.
+6. FP 또는 already-fixed를 처리한 경우 `~/.gstack/greptile-history.md`에 기록합니다.
 
 ---
 

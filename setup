@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# gstack setup — 브라우저 바이너리 빌드 + Claude Code에 모든 스킬 등록
+# gstack setup — build browser binary + register all skills with Claude Code
 set -e
 
 GSTACK_DIR="$(cd "$(dirname "$0")" && pwd)"
@@ -13,7 +13,7 @@ ensure_playwright_browser() {
   ) >/dev/null 2>&1
 }
 
-# 1. 필요한 경우 browse 바이너리 빌드 (스마트 재빌드: 오래된 소스, package.json, lock)
+# 1. Build browse binary if needed (smart rebuild: stale sources, package.json, lock)
 NEEDS_BUILD=0
 if [ ! -x "$BROWSE_BIN" ]; then
   NEEDS_BUILD=1
@@ -26,22 +26,26 @@ elif [ -f "$GSTACK_DIR/bun.lock" ] && [ "$GSTACK_DIR/bun.lock" -nt "$BROWSE_BIN"
 fi
 
 if [ "$NEEDS_BUILD" -eq 1 ]; then
-  echo "browse 바이너리 빌드 중..."
+  echo "Building browse binary..."
   (
     cd "$GSTACK_DIR"
     bun install
     bun run build
   )
+  # Safety net: write .version if build script didn't (e.g., git not available during build)
+  if [ ! -f "$GSTACK_DIR/browse/dist/.version" ]; then
+    git -C "$GSTACK_DIR" rev-parse HEAD > "$GSTACK_DIR/browse/dist/.version" 2>/dev/null || true
+  fi
 fi
 
 if [ ! -x "$BROWSE_BIN" ]; then
-  echo "gstack setup 실패: browse 바이너리가 $BROWSE_BIN 에 없습니다" >&2
+  echo "gstack setup failed: browse binary missing at $BROWSE_BIN" >&2
   exit 1
 fi
 
-# 2. Playwright의 Chromium이 사용 가능한지 확인
+# 2. Ensure Playwright's Chromium is available
 if ! ensure_playwright_browser; then
-  echo "Playwright Chromium 설치 중..."
+  echo "Installing Playwright Chromium..."
   (
     cd "$GSTACK_DIR"
     bunx playwright install chromium
@@ -49,21 +53,21 @@ if ! ensure_playwright_browser; then
 fi
 
 if ! ensure_playwright_browser; then
-  echo "gstack setup 실패: Playwright Chromium을 실행할 수 없습니다" >&2
+  echo "gstack setup failed: Playwright Chromium could not be launched" >&2
   exit 1
 fi
 
-# 3. .claude/skills 디렉토리 내부에 있을 때만 스킬 심볼릭 링크 생성
+# 3. Only create skill symlinks if we're inside a .claude/skills directory
 SKILLS_BASENAME="$(basename "$SKILLS_DIR")"
 if [ "$SKILLS_BASENAME" = "skills" ]; then
   linked=()
   for skill_dir in "$GSTACK_DIR"/*/; do
     if [ -f "$skill_dir/SKILL.md" ]; then
       skill_name="$(basename "$skill_dir")"
-      # node_modules 건너뛰기
+      # Skip node_modules
       [ "$skill_name" = "node_modules" ] && continue
       target="$SKILLS_DIR/$skill_name"
-      # 심볼릭 링크 생성 또는 업데이트; 실제 파일/디렉토리가 있으면 건너뛰기
+      # Create or update symlink; skip if a real file/directory exists
       if [ -L "$target" ] || [ ! -e "$target" ]; then
         ln -snf "gstack/$skill_name" "$target"
         linked+=("$skill_name")
@@ -71,13 +75,20 @@ if [ "$SKILLS_BASENAME" = "skills" ]; then
     fi
   done
 
-  echo "gstack 준비 완료."
+  echo "gstack ready."
   echo "  browse: $BROWSE_BIN"
   if [ ${#linked[@]} -gt 0 ]; then
-    echo "  연결된 스킬: ${linked[*]}"
+    echo "  linked skills: ${linked[*]}"
   fi
 else
-  echo "gstack 준비 완료."
+  echo "gstack ready."
   echo "  browse: $BROWSE_BIN"
-  echo "  (스킬 심볼릭 링크 건너뜀 — .claude/skills/ 내부가 아님)"
+  echo "  (skipped skill symlinks — not inside .claude/skills/)"
 fi
+
+# 4. First-time welcome + legacy cleanup
+if [ ! -d "$HOME/.gstack" ]; then
+  mkdir -p "$HOME/.gstack"
+  echo "  Welcome! Run /gstack-upgrade anytime to stay current."
+fi
+rm -f /tmp/gstack-latest-version

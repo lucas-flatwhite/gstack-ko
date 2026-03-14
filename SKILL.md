@@ -1,19 +1,143 @@
-# gstack Browse: QA 테스트 도구 개요
+---
+name: gstack
+version: 1.1.0
+description: |
+  gstack browse 모드. 지속형 헤드리스 브라우저로 QA 테스트, 사용자 플로우 검증,
+  스크린샷/증거 수집, 상태 점검을 수행합니다.
+allowed-tools:
+  - Bash
+  - Read
+  - AskUserQuestion
+---
 
-이 문서는 품질 보증 및 사용자 흐름 검증을 위해 설계된 지속적인 헤드리스 브라우저 유틸리티를 설명합니다. 도구는 초기 시작 후 커맨드당 약 100밀리초로 동작합니다.
+## Update Check (먼저 실행)
 
-## 주요 기능
+```bash
+_UPD=$(~/.claude/skills/gstack/bin/gstack-update-check 2>/dev/null || .claude/skills/gstack/bin/gstack-update-check 2>/dev/null || true)
+[ -n "$_UPD" ] && echo "$_UPD" || true
+```
 
-시스템은 상호작용 간 상태를 유지하여 "쿠키, 탭, 로그인 세션"을 보존합니다. URL 탐색, 페이지 요소와 상호작용, 스크린샷 캡처, 다양한 어서션 방법을 통해 애플리케이션 동작을 검증할 수 있습니다.
+출력이 `UPGRADE_AVAILABLE <old> <new>`이면 `~/.claude/skills/gstack/gstack-upgrade/SKILL.md`를 읽고 "Inline upgrade flow"를 따릅니다 (업그레이드 여부를 AskUserQuestion으로 확인. 업그레이드하지 않으면 `touch ~/.gstack/last-update-check`).
+`JUST_UPGRADED <from> <to>`이면 `gstack v{to}로 실행 중(방금 업데이트됨)`을 알리고 계속합니다.
 
-## 주요 사용 사례
+# gstack browse: QA 테스트 및 도그푸딩
 
-도구는 여러 테스트 패턴을 지원합니다: 페이지 로드 확인, 사용자 워크플로우 테스트, 액션 결과 검증, 시각적 버그 증거 생성, 대화형 요소 식별, 엘리먼트 상태 어서션, 반응형 디자인 테스트, 파일 업로드 처리, 다이얼로그 관리, 서로 다른 배포 단계의 환경 비교.
+지속형 헤드리스 Chromium입니다. 첫 호출은 자동 시작(~3초), 이후 커맨드당 약 100ms입니다.
+상태(쿠키, 탭, 로그인 세션)가 호출 간 유지됩니다.
 
-## 커맨드 구조
+## SETUP (browse 커맨드 전에 반드시 실행)
 
-인터페이스는 탐색 커맨드(goto, back, forward), 콘텐츠 검사(text, html, links), 여러 플래그를 갖춘 스냅샷 기능, 상호작용 방법(click, fill, select), 검사 도구(js 평가, 콘솔 접근, 네트워크 모니터링), 주석 스크린샷 및 반응형 레이아웃 테스트를 포함한 시각적 출력 옵션을 제공합니다.
+```bash
+_ROOT=$(git rev-parse --show-toplevel 2>/dev/null)
+B=""
+[ -n "$_ROOT" ] && [ -x "$_ROOT/.claude/skills/gstack/browse/dist/browse" ] && B="$_ROOT/.claude/skills/gstack/browse/dist/browse"
+[ -z "$B" ] && B=~/.claude/skills/gstack/browse/dist/browse
+if [ -x "$B" ]; then
+  echo "READY: $B"
+else
+  echo "NEEDS_SETUP"
+fi
+```
 
-## 스냅샷 주석
+`NEEDS_SETUP`인 경우:
+1. 사용자에게 "gstack browse는 1회 빌드가 필요합니다(~10초). 진행할까요?"라고 묻고 대기합니다.
+2. `cd <SKILL_DIR> && ./setup` 실행.
+3. `bun`이 없으면 `curl -fsSL https://bun.sh/install | bash` 실행.
 
-스냅샷은 대화형 요소 필터링, 컴팩트 출력, 깊이 제한, CSS 스코핑, 비교 diff, 주석 스크린샷, cursor-interactive 요소 감지를 지원하여 정밀한 QA 타겟팅과 증거 수집을 가능하게 합니다.
+## 핵심 QA 패턴
+
+### 사용자 플로우 검증
+
+```bash
+$B goto https://app.example.com/login
+$B snapshot -i
+$B fill @e3 "user@example.com"
+$B fill @e4 "password"
+$B click @e5
+$B snapshot -D
+$B is visible ".dashboard"
+```
+
+### 액션 전후 변화 검증
+
+```bash
+$B snapshot
+$B click @e3
+$B snapshot -D
+```
+
+### 버그 증거 수집
+
+```bash
+$B snapshot -i -a -o /tmp/annotated.png
+$B screenshot /tmp/bug.png
+$B console --errors
+```
+
+## Snapshot Flags
+
+`snapshot`은 페이지 구조 이해와 상호작용 대상 식별의 기본 도구입니다.
+
+```
+-i        --interactive           대화형 요소만(@e ref)
+-c        --compact               빈 구조 노드 제외
+-d <N>    --depth                 트리 깊이 제한 (0=root만)
+-s <sel>  --selector              CSS 셀렉터 범위로 제한
+-D        --diff                  이전 snapshot 대비 unified diff
+-a        --annotate              ref 라벨이 있는 주석 스크린샷
+-o <path> --output                주석 스크린샷 저장 경로
+-C        --cursor-interactive    cursor-interactive 요소(@c ref)
+```
+
+- 플래그 조합 가능. (`-o`는 `-a`와 함께 사용할 때만 유효)
+- 예시: `$B snapshot -i -a -C -o /tmp/annotated.png`
+- 스냅샷 후 @ref를 셀렉터처럼 사용할 수 있습니다.
+
+```bash
+$B click @e3       $B fill @e4 "value"     $B hover @e1
+$B html @e2        $B css @e5 "color"      $B attrs @e6
+$B click @c1
+```
+
+네비게이션(`goto`) 후에는 ref가 무효화되므로 snapshot을 다시 실행합니다.
+
+## Command Reference
+
+### Navigation
+- `goto <url>`: URL 이동
+- `back`, `forward`, `reload`, `url`
+
+### Reading
+- `text`, `html [selector]`, `links`, `forms`, `accessibility`
+
+### Interaction
+- `click`, `fill`, `select`, `hover`, `type`, `press`, `scroll`
+- `wait <sel|--networkidle|--load>`
+- `upload <sel> <file> [file2...]`
+- `viewport <WxH>`, `useragent <string>`
+- `cookie <name>=<value>`, `cookie-import <json>`
+- `cookie-import-browser [browser] [--domain d]`
+- `header <name>:<value>`
+- `dialog-accept [text]`, `dialog-dismiss`
+
+### Inspection
+- `js <expr>`, `eval <file>`
+- `css <sel> <prop>`, `attrs <sel|@ref>`, `is <prop> <sel>`
+- `console [--clear|--errors]`, `network [--clear]`, `dialog [--clear]`
+- `cookies`, `storage [set k v]`, `perf`
+
+### Visual
+- `screenshot [path]`, `pdf [path]`, `responsive [prefix]`
+- `diff <url1> <url2>`
+
+### Snapshot / Meta / Tabs / Server
+- `snapshot [flags]`
+- `chain` (JSON stdin)
+- `tabs`, `tab <id>`, `newtab [url]`, `closetab [id]`
+- `status`, `restart`, `stop`
+
+## 운영 팁
+
+- 상호작용 직후 `console --errors`를 습관적으로 확인합니다.
+- 접근성 트리에서 놓치는 클릭 가능한 div 탐색은 `snapshot -C`를 사용합니다.
+- 재현/보고 품질을 위해 스크린샷은 `/tmp` 또는 프로젝트 내 경로에 저장합니다.

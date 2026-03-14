@@ -10,7 +10,18 @@ allowed-tools:
   - Read
   - Write
   - Glob
+  - AskUserQuestion
 ---
+
+## Update Check (먼저 실행)
+
+```bash
+_UPD=$(~/.claude/skills/gstack/bin/gstack-update-check 2>/dev/null || .claude/skills/gstack/bin/gstack-update-check 2>/dev/null || true)
+[ -n "$_UPD" ] && echo "$_UPD"
+```
+
+출력이 `UPGRADE_AVAILABLE <old> <new>`이면 `~/.claude/skills/gstack/gstack-upgrade/SKILL.md`를 읽고 "Inline upgrade flow"를 따릅니다 (업그레이드 여부 AskUserQuestion).
+`JUST_UPGRADED <from> <to>`이면 현재 버전을 사용자에게 알리고 계속합니다.
 
 # /retro — 주간 엔지니어링 회고
 
@@ -77,6 +88,9 @@ git log origin/main --since="<window>" --format="AUTHOR:%aN" --name-only
 
 # 7. 작성자별 커밋 카운트 (빠른 요약)
 git shortlog origin/main --since="<window>" -sn --no-merges
+
+# 8. Greptile 트리아지 히스토리 (있으면)
+cat ~/.gstack/greptile-history.md 2>/dev/null || true
 ```
 
 ### Step 2: 메트릭 계산
@@ -97,6 +111,7 @@ git shortlog origin/main --since="<window>" -sn --no-merges
 | 활동 일수 | N |
 | 감지된 세션 | N |
 | 평균 LOC/세션-시간 | N |
+| Greptile 신호 | N% (Y 유효 포착, Z 오탐) |
 
 그런 다음 바로 아래에 **작성자별 리더보드** 표시:
 
@@ -108,6 +123,10 @@ bob                    3   +120/-40     tests/
 ```
 
 커밋 내림차순으로 정렬합니다. 현재 사용자(`git config user.name`)는 항상 "나 (이름)"으로 레이블 지정되어 첫 번째로 나타납니다.
+
+Greptile 히스토리가 있으면 기간 내 `fix`, `already-fixed`, `fp` 개수를 집계합니다.
+신호 비율은 `(fix + already-fixed) / (fix + already-fixed + fp)`로 계산합니다.
+기간 내 데이터가 없거나 파일이 없으면 Greptile 행은 생략합니다.
 
 ### Step 3: 커밋 시간 분포
 
@@ -293,9 +312,17 @@ Write 도구를 사용하여 다음 스키마로 JSON 파일을 저장합니다:
   },
   "version_range": ["1.16.0.0", "1.16.1.0"],
   "streak_days": 47,
-  "tweetable": "3월 1일 주: 47 커밋 (기여자 3명), 3.2k LOC, 38% 테스트, PR 12개, 피크: 오후 10시"
+  "tweetable": "3월 1일 주: 47 커밋 (기여자 3명), 3.2k LOC, 38% 테스트, PR 12개, 피크: 오후 10시",
+  "greptile": {
+    "fixes": 3,
+    "fps": 1,
+    "already_fixed": 2,
+    "signal_pct": 83
+  }
 }
 ```
+
+Greptile 기간 데이터가 없으면 `greptile` 필드는 생략합니다.
 
 ### Step 14: 내러티브 작성
 
@@ -338,6 +365,7 @@ Write 도구를 사용하여 다음 스키마로 JSON 파일을 저장합니다:
 - 테스트 LOC 비율 추세
 - 핫스팟 분석 (같은 파일이 계속 변경되고 있나?)
 - 분할해야 했던 초대형 PR
+- Greptile 신호 비율 추세 (히스토리가 있을 때)
 
 ### 집중도 및 하이라이트
 (Step 8에서)
