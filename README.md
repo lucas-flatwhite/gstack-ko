@@ -1,4 +1,5 @@
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow?style=flat-square)](LICENSE)
+![GitHub last commit](https://img.shields.io/github/last-commit/lucas-flatwhite/gstack-ko)
 
 # gstack-ko (한국어 버전)
 
