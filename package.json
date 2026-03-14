@@ -1,0 +1,18 @@
+{
+  "name": "gstack",
+  "version": "0.3.1",
+  "description": "Garry's Stack — Claude Code skills + fast headless browser. One repo, one install, entire AI engineering workflow.",
+  "license": "MIT",
+  "type": "module",
+  "scripts": {
+    "build": "bun run build:browse",
+    "build:browse": "cd browse && bun run build",
+    "dev": "cd browse && bun run dev"
+  },
+  "devDependencies": {
+    "playwright": "^1.58.2"
+  },
+  "dependencies": {
+    "diff": "^7.0.0"
+  }
+}

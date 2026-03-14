@@ -1,0 +1,83 @@
+#!/usr/bin/env bash
+# gstack setup — 브라우저 바이너리 빌드 + Claude Code에 모든 스킬 등록
+set -e
+
+GSTACK_DIR="$(cd "$(dirname "$0")" && pwd)"
+SKILLS_DIR="$(dirname "$GSTACK_DIR")"
+BROWSE_BIN="$GSTACK_DIR/browse/dist/browse"
+
+ensure_playwright_browser() {
+  (
+    cd "$GSTACK_DIR"
+    bun --eval 'import { chromium } from "playwright"; const browser = await chromium.launch(); await browser.close();'
+  ) >/dev/null 2>&1
+}
+
+# 1. 필요한 경우 browse 바이너리 빌드 (스마트 재빌드: 오래된 소스, package.json, lock)
+NEEDS_BUILD=0
+if [ ! -x "$BROWSE_BIN" ]; then
+  NEEDS_BUILD=1
+elif [ -n "$(find "$GSTACK_DIR/browse/src" -type f -newer "$BROWSE_BIN" -print -quit 2>/dev/null)" ]; then
+  NEEDS_BUILD=1
+elif [ "$GSTACK_DIR/package.json" -nt "$BROWSE_BIN" ]; then
+  NEEDS_BUILD=1
+elif [ -f "$GSTACK_DIR/bun.lock" ] && [ "$GSTACK_DIR/bun.lock" -nt "$BROWSE_BIN" ]; then
+  NEEDS_BUILD=1
+fi
+
+if [ "$NEEDS_BUILD" -eq 1 ]; then
+  echo "browse 바이너리 빌드 중..."
+  (
+    cd "$GSTACK_DIR"
+    bun install
+    bun run build
+  )
+fi
+
+if [ ! -x "$BROWSE_BIN" ]; then
+  echo "gstack setup 실패: browse 바이너리가 $BROWSE_BIN 에 없습니다" >&2
+  exit 1
+fi
+
+# 2. Playwright의 Chromium이 사용 가능한지 확인
+if ! ensure_playwright_browser; then
+  echo "Playwright Chromium 설치 중..."
+  (
+    cd "$GSTACK_DIR"
+    bunx playwright install chromium
+  )
+fi
+
+if ! ensure_playwright_browser; then
+  echo "gstack setup 실패: Playwright Chromium을 실행할 수 없습니다" >&2
+  exit 1
+fi
+
+# 3. .claude/skills 디렉토리 내부에 있을 때만 스킬 심볼릭 링크 생성
+SKILLS_BASENAME="$(basename "$SKILLS_DIR")"
+if [ "$SKILLS_BASENAME" = "skills" ]; then
+  linked=()
+  for skill_dir in "$GSTACK_DIR"/*/; do
+    if [ -f "$skill_dir/SKILL.md" ]; then
+      skill_name="$(basename "$skill_dir")"
+      # node_modules 건너뛰기
+      [ "$skill_name" = "node_modules" ] && continue
+      target="$SKILLS_DIR/$skill_name"
+      # 심볼릭 링크 생성 또는 업데이트; 실제 파일/디렉토리가 있으면 건너뛰기
+      if [ -L "$target" ] || [ ! -e "$target" ]; then
+        ln -snf "gstack/$skill_name" "$target"
+        linked+=("$skill_name")
+      fi
+    fi
+  done
+
+  echo "gstack 준비 완료."
+  echo "  browse: $BROWSE_BIN"
+  if [ ${#linked[@]} -gt 0 ]; then
+    echo "  연결된 스킬: ${linked[*]}"
+  fi
+else
+  echo "gstack 준비 완료."
+  echo "  browse: $BROWSE_BIN"
+  echo "  (스킬 심볼릭 링크 건너뜀 — .claude/skills/ 내부가 아님)"
+fi

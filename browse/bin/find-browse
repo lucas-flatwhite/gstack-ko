@@ -1,0 +1,11 @@
+#!/bin/bash
+# gstack browse 바이너리를 찾습니다. 경로를 출력하고 0으로 종료, 또는 찾지 못하면 1로 종료합니다.
+ROOT=$(git rev-parse --show-toplevel 2>/dev/null)
+if [ -n "$ROOT" ] && test -x "$ROOT/.claude/skills/gstack/browse/dist/browse"; then
+  echo "$ROOT/.claude/skills/gstack/browse/dist/browse"
+elif test -x "$HOME/.claude/skills/gstack/browse/dist/browse"; then
+  echo "$HOME/.claude/skills/gstack/browse/dist/browse"
+else
+  echo "ERROR: browse 바이너리를 찾을 수 없습니다. 다음을 실행하세요: cd <skill-dir> && ./setup" >&2
+  exit 1
+fi

@@ -1,0 +1,82 @@
+---
+name: setup-browser-cookies
+version: 1.0.0
+description: |
+  실제 브라우저(Comet, Chrome, Arc, Brave, Edge)에서 헤드리스 browse 세션으로
+  쿠키를 가져옵니다. 가져올 쿠키 도메인을 선택하는 대화형 선택기 UI를 엽니다.
+  인증된 페이지를 QA 테스트하기 전에 사용합니다.
+allowed-tools:
+  - Bash
+  - Read
+---
+
+# 브라우저 쿠키 설정
+
+실제 Chromium 브라우저에서 헤드리스 browse 세션으로 로그인한 세션을 가져옵니다.
+
+## 작동 방식
+
+1. browse 바이너리를 찾습니다
+2. `cookie-import-browser`를 실행하여 설치된 브라우저를 감지하고 선택기 UI를 엽니다
+3. 사용자가 브라우저에서 가져올 쿠키 도메인을 선택합니다
+4. 쿠키가 복호화되어 Playwright 세션에 로드됩니다
+
+## 단계
+
+### 1. browse 바이너리 찾기
+
+```bash
+B=$(browse/bin/find-browse 2>/dev/null || ~/.claude/skills/gstack/browse/bin/find-browse 2>/dev/null)
+if [ -n "$B" ]; then
+  echo "준비됨: $B"
+else
+  echo "NEEDS_SETUP"
+fi
+```
+
+`NEEDS_SETUP`인 경우:
+1. 사용자에게 말합니다: "gstack browse를 처음 빌드해야 합니다 (~10초). 계속할까요?" 그런 다음 중지하고 기다립니다.
+2. 실행: `cd <SKILL_DIR> && ./setup`
+3. `bun`이 설치되지 않은 경우: `curl -fsSL https://bun.sh/install | bash`
+
+### 2. 쿠키 선택기 열기
+
+```bash
+$B cookie-import-browser
+```
+
+설치된 Chromium 브라우저(Comet, Chrome, Arc, Brave, Edge)를 자동 감지하고
+기본 브라우저에서 대화형 선택기 UI를 열어 다음 작업을 할 수 있습니다:
+- 설치된 브라우저 간 전환
+- 도메인 검색
+- "+"를 클릭하여 도메인 쿠키 가져오기
+- 휴지통 아이콘을 클릭하여 가져온 쿠키 제거
+
+사용자에게 말합니다: **"쿠키 선택기가 열렸습니다 — 브라우저에서 가져올 도메인을 선택하고, 완료되면 알려주세요."**
+
+### 3. 직접 가져오기 (대안)
+
+사용자가 도메인을 직접 지정하는 경우 (예: `/setup-browser-cookies github.com`), UI를 건너뜁니다:
+
+```bash
+$B cookie-import-browser comet --domain github.com
+```
+
+지정된 경우 `comet`을 적절한 브라우저로 교체합니다.
+
+### 4. 확인
+
+사용자가 완료를 확인한 후:
+
+```bash
+$B cookies
+```
+
+가져온 쿠키 요약(도메인 카운트)을 사용자에게 보여줍니다.
+
+## 참고사항
+
+- 브라우저별 첫 번째 가져오기 시 macOS 키체인 다이얼로그가 나타날 수 있습니다 — "허용" / "항상 허용" 클릭
+- 쿠키 선택기는 browse 서버와 같은 포트에서 제공됩니다 (추가 프로세스 없음)
+- UI에는 도메인 이름과 쿠키 개수만 표시됩니다 — 실제 쿠키 값은 노출되지 않습니다
+- browse 세션은 커맨드 간 쿠키를 유지하므로, 가져온 쿠키는 즉시 동작합니다
