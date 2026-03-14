@@ -1,4 +1,6 @@
-# gstack-ko
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow?style=flat-square)](LICENSE)
+
+# gstack-ko (한국어 버전)
 
 > **이 저장소는 [garrytan/gstack](https://github.com/garrytan/gstack)의 한국어 번역본입니다.**
 > 원본 저장소: https://github.com/garrytan/gstack | 원작자: [Garry Tan](https://x.com/garrytan) (Y Combinator 대표 겸 CEO)
