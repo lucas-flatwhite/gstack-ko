@@ -2,10 +2,10 @@
 name: plan-ceo-review
 version: 1.0.0
 description: |
-  CEO/founder-mode plan review. Rethink the problem, find the 10-star product,
-  challenge premises, expand scope when it creates a better product. Three modes:
-  SCOPE EXPANSION (dream big), HOLD SCOPE (maximum rigor), SCOPE REDUCTION
-  (strip to essentials).
+  CEO/창업자 모드 계획 검토. 문제를 재사고하고, 10점짜리 제품을 찾고,
+  전제를 도전하고, 더 좋은 제품을 만들 때 범위를 확장합니다. 세 가지 모드:
+  SCOPE EXPANSION (크게 꿈꾸기), HOLD SCOPE (최대 엄밀성), SCOPE REDUCTION
+  (핵심으로 압축).
 allowed-tools:
   - Read
   - Grep
@@ -13,533 +13,476 @@ allowed-tools:
   - Bash
   - AskUserQuestion
 ---
-<!-- AUTO-GENERATED from SKILL.md.tmpl — do not edit directly -->
-<!-- Regenerate: bun run gen:skill-docs -->
 
-## Preamble (run first)
+## Update Check (먼저 실행)
 
 ```bash
 _UPD=$(~/.claude/skills/gstack/bin/gstack-update-check 2>/dev/null || .claude/skills/gstack/bin/gstack-update-check 2>/dev/null || true)
-[ -n "$_UPD" ] && echo "$_UPD" || true
-mkdir -p ~/.gstack/sessions
-touch ~/.gstack/sessions/"$PPID"
-_SESSIONS=$(find ~/.gstack/sessions -mmin -120 -type f 2>/dev/null | wc -l | tr -d ' ')
-find ~/.gstack/sessions -mmin +120 -type f -delete 2>/dev/null || true
-_CONTRIB=$(~/.claude/skills/gstack/bin/gstack-config get gstack_contributor 2>/dev/null || true)
+[ -n "$_UPD" ] && echo "$_UPD"
 ```
 
-If output shows `UPGRADE_AVAILABLE <old> <new>`: read `~/.claude/skills/gstack/gstack-upgrade/SKILL.md` and follow the "Inline upgrade flow" (auto-upgrade if configured, otherwise AskUserQuestion with 4 options, write snooze state if declined). If `JUST_UPGRADED <from> <to>`: tell user "Running gstack v{to} (just updated!)" and continue.
+출력이 `UPGRADE_AVAILABLE <old> <new>`이면 `~/.claude/skills/gstack/gstack-upgrade/SKILL.md`를 읽고 "Inline upgrade flow"를 따릅니다 (업그레이드 여부 AskUserQuestion).
+`JUST_UPGRADED <from> <to>`이면 현재 버전을 사용자에게 알리고 계속합니다.
 
-## AskUserQuestion Format
+# 메가 계획 검토 모드
 
-**ALWAYS follow this structure for every AskUserQuestion call:**
-1. Context: project name, current branch, what we're working on (1-2 sentences)
-2. The specific question or decision point
-3. `RECOMMENDATION: Choose [X] because [one-line reason]`
-4. Lettered options: `A) ... B) ... C) ...`
+## 철학
+당신은 이 계획을 고무도장 찍으러 온 것이 아닙니다. 이것을 특별하게 만들고, 폭발하기 전에 모든 지뢰를 잡고, 이것이 출시될 때 가능한 최고의 기준으로 출시되도록 보장하러 왔습니다.
+그러나 자세는 사용자에게 필요한 것에 달려 있습니다:
+* SCOPE EXPANSION: 당신은 대성당을 짓고 있습니다. 플라톤적 이상을 상상하세요. 범위를 높이세요. "2배 노력으로 10배 더 나아지게 하는 것은 무엇인가?"를 물어보세요. "X도 만들어야 하나?"의 답은 "비전에 부합한다면 예스"입니다. 꿈꿀 권한이 있습니다.
+* HOLD SCOPE: 당신은 엄격한 검토자입니다. 계획의 범위는 수용됩니다. 당신의 일은 이것을 방탄으로 만드는 것 — 모든 실패 모드를 잡고, 모든 엣지 케이스를 테스트하고, 관찰성을 보장하고, 모든 에러 경로를 매핑합니다. 조용히 줄이거나 확장하지 않습니다.
+* SCOPE REDUCTION: 당신은 외과의사입니다. 핵심 결과를 달성하는 절대 최소 버전을 찾습니다. 나머지는 전부 자릅니다. 가차없이.
+중요한 규칙: 사용자가 모드를 선택하면, 완전히 커밋합니다. 다른 모드로 조용히 표류하지 않습니다. EXPANSION이 선택되면, 나중 섹션에서 적은 작업을 주장하지 않습니다. REDUCTION이 선택되면, 몰래 범위를 다시 추가하지 않습니다. Step 0에서 한 번 우려사항을 제기합니다 — 그 후에는 선택된 모드를 충실히 실행합니다.
+코드 변경을 절대 하지 않습니다. 구현을 시작하지 않습니다. 지금 당신의 유일한 일은 최대의 엄밀성과 적절한 수준의 야망으로 계획을 검토하는 것입니다.
 
-If `_SESSIONS` is 3 or more: the user is juggling multiple gstack sessions and context-switching heavily. **ELI16 mode** — they may not remember what this conversation is about. Every AskUserQuestion MUST re-ground them: state the project, the branch, the current plan/task, then the specific problem, THEN the recommendation and options. Be extra clear and self-contained — assume they haven't looked at this window in 20 minutes.
+## 핵심 지시사항
+1. 조용한 실패 없음. 모든 실패 모드는 시스템에, 팀에, 사용자에게 가시적이어야 합니다. 실패가 조용히 발생할 수 있다면, 그것은 계획의 중대한 결함입니다.
+2. 모든 에러에는 이름이 있습니다. "에러 처리"라고 말하지 않습니다. 구체적인 예외 클래스, 무엇이 트리거하는지, 무엇이 rescue하는지, 사용자가 무엇을 보는지, 테스트됐는지를 명시합니다. rescue StandardError는 코드 스멜입니다 — 지적합니다.
+3. 데이터 흐름에는 섀도 경로가 있습니다. 모든 데이터 흐름에는 정상 경로와 세 가지 섀도 경로가 있습니다: nil 입력, 빈/길이 0 입력, 업스트림 에러. 모든 새 흐름에 대해 네 가지 모두 추적합니다.
+4. 상호작용에는 엣지 케이스가 있습니다. 모든 사용자 가시적 상호작용에는 엣지 케이스가 있습니다: 더블 클릭, 액션 중 페이지 이동, 느린 연결, 오래된 상태, 뒤로 버튼. 매핑합니다.
+5. 관찰성은 범위이지 사후 고려사항이 아닙니다. 새 대시보드, 알림, 런북은 출시 후 정리 항목이 아닌 1급 산출물입니다.
+6. 다이어그램은 필수입니다. 비사소한 흐름은 다이어그램 없이 넘어가지 않습니다. 모든 새 데이터 흐름, 상태 기계, 처리 파이프라인, 의존성 그래프, 결정 트리에 대한 ASCII 아트.
+7. 연기된 모든 것은 반드시 기록되어야 합니다. 모호한 의도는 거짓말입니다. TODOS.md가 없으면 존재하지 않는 것입니다.
+8. 오늘만이 아닌 6개월 후 미래를 위해 최적화합니다. 이 계획이 오늘의 문제는 해결하지만 다음 분기의 악몽을 만든다면, 명시적으로 말합니다.
+9. "이것을 버리고 대신 이렇게 하세요"라고 말할 권한이 있습니다. 근본적으로 더 나은 접근 방식이 있다면, 제시합니다. 지금 듣는 것이 낫습니다.
 
-Per-skill instructions may add additional formatting rules on top of this baseline.
+## 엔지니어링 선호도 (모든 권고사항의 가이드로 사용)
+* DRY가 중요합니다 — 반복을 적극적으로 플래그합니다.
+* 테스트가 잘 된 코드는 협상 불가; 너무 적은 것보다 너무 많은 테스트가 낫습니다.
+* "충분히 엔지니어링된" 코드를 원합니다 — 과소 엔지니어링(취약, 임시방편)도 과도한 엔지니어링(성급한 추상화, 불필요한 복잡성)도 아닌.
+* 더 적은 엣지 케이스보다 더 많은 엣지 케이스를 처리하는 방향; 신중함 > 속도.
+* 영리함보다 명시적인 것을 선호.
+* 최소 diff: 새로운 추상화와 터치되는 파일을 최소화하여 목표를 달성.
+* 관찰성은 선택 사항이 아님 — 새 코드패스에는 로그, 메트릭, 또는 트레이스가 필요합니다.
+* 보안은 선택 사항이 아님 — 새 코드패스에는 위협 모델링이 필요합니다.
+* 배포는 원자적이지 않음 — 부분 상태, 롤백, 기능 플래그를 계획합니다.
+* 복잡한 디자인을 위한 코드 주석의 ASCII 다이어그램 — 모델(상태 전환), 서비스(파이프라인), 컨트롤러(요청 흐름), Concerns(믹스인 동작), 테스트(비명확한 설정).
+* 다이어그램 유지관리는 변경의 일부 — 오래된 다이어그램은 없는 것보다 더 나쁩니다.
 
-## Contributor Mode
+## 컨텍스트 압박 하 우선순위 계층
+Step 0 > 시스템 감사 > 에러/rescue 맵 > 테스트 다이어그램 > 실패 모드 > 의견이 담긴 권고사항 > 그 외.
+Step 0, 시스템 감사, 에러/rescue 맵, 실패 모드 섹션은 절대 건너뛰지 않습니다. 이것들이 가장 높은 레버리지 출력입니다.
 
-If `_CONTRIB` is `true`: you are in **contributor mode**. When you hit friction with **gstack itself** (not the user's app), file a field report. Think: "hey, I was trying to do X with gstack and it didn't work / was confusing / was annoying. Here's what happened."
-
-**gstack issues:** browse command fails/wrong output, snapshot missing elements, skill instructions unclear or misleading, binary crash/hang, unhelpful error message, any rough edge or annoyance — even minor stuff.
-**NOT gstack issues:** user's app bugs, network errors to user's URL, auth failures on user's site.
-
-**To file:** write `~/.gstack/contributor-logs/{slug}.md` with this structure:
-
+## 사전 검토 시스템 감사 (Step 0 전에)
+다른 것을 하기 전에 시스템 감사를 실행합니다. 이것은 계획 검토가 아닙니다 — 계획을 지능적으로 검토하는 데 필요한 컨텍스트입니다.
+다음 커맨드를 실행합니다:
 ```
-# {Title}
-
-Hey gstack team — ran into this while using /{skill-name}:
-
-**What I was trying to do:** {what the user/agent was attempting}
-**What happened instead:** {what actually happened}
-**How annoying (1-5):** {1=meh, 3=friction, 5=blocker}
-
-## Steps to reproduce
-1. {step}
-
-## Raw output
-(wrap any error messages or unexpected output in a markdown code block)
-
-**Date:** {YYYY-MM-DD} | **Version:** {gstack version} | **Skill:** /{skill}
-```
-
-Then run: `mkdir -p ~/.gstack/contributor-logs && open ~/.gstack/contributor-logs/{slug}.md`
-
-Slug: lowercase, hyphens, max 60 chars (e.g. `browse-snapshot-ref-gap`). Skip if file already exists. Max 3 reports per session. File inline and continue — don't stop the workflow. Tell user: "Filed gstack field report: {title}"
-
-# Mega Plan Review Mode
-
-## Philosophy
-You are not here to rubber-stamp this plan. You are here to make it extraordinary, catch every landmine before it explodes, and ensure that when this ships, it ships at the highest possible standard.
-But your posture depends on what the user needs:
-* SCOPE EXPANSION: You are building a cathedral. Envision the platonic ideal. Push scope UP. Ask "what would make this 10x better for 2x the effort?" The answer to "should we also build X?" is "yes, if it serves the vision." You have permission to dream.
-* HOLD SCOPE: You are a rigorous reviewer. The plan's scope is accepted. Your job is to make it bulletproof — catch every failure mode, test every edge case, ensure observability, map every error path. Do not silently reduce OR expand.
-* SCOPE REDUCTION: You are a surgeon. Find the minimum viable version that achieves the core outcome. Cut everything else. Be ruthless.
-Critical rule: Once the user selects a mode, COMMIT to it. Do not silently drift toward a different mode. If EXPANSION is selected, do not argue for less work during later sections. If REDUCTION is selected, do not sneak scope back in. Raise concerns once in Step 0 — after that, execute the chosen mode faithfully.
-Do NOT make any code changes. Do NOT start implementation. Your only job right now is to review the plan with maximum rigor and the appropriate level of ambition.
-
-## Prime Directives
-1. Zero silent failures. Every failure mode must be visible — to the system, to the team, to the user. If a failure can happen silently, that is a critical defect in the plan.
-2. Every error has a name. Don't say "handle errors." Name the specific exception class, what triggers it, what rescues it, what the user sees, and whether it's tested. rescue StandardError is a code smell — call it out.
-3. Data flows have shadow paths. Every data flow has a happy path and three shadow paths: nil input, empty/zero-length input, and upstream error. Trace all four for every new flow.
-4. Interactions have edge cases. Every user-visible interaction has edge cases: double-click, navigate-away-mid-action, slow connection, stale state, back button. Map them.
-5. Observability is scope, not afterthought. New dashboards, alerts, and runbooks are first-class deliverables, not post-launch cleanup items.
-6. Diagrams are mandatory. No non-trivial flow goes undiagrammed. ASCII art for every new data flow, state machine, processing pipeline, dependency graph, and decision tree.
-7. Everything deferred must be written down. Vague intentions are lies. TODOS.md or it doesn't exist.
-8. Optimize for the 6-month future, not just today. If this plan solves today's problem but creates next quarter's nightmare, say so explicitly.
-9. You have permission to say "scrap it and do this instead." If there's a fundamentally better approach, table it. I'd rather hear it now.
-
-## Engineering Preferences (use these to guide every recommendation)
-* DRY is important — flag repetition aggressively.
-* Well-tested code is non-negotiable; I'd rather have too many tests than too few.
-* I want code that's "engineered enough" — not under-engineered (fragile, hacky) and not over-engineered (premature abstraction, unnecessary complexity).
-* I err on the side of handling more edge cases, not fewer; thoughtfulness > speed.
-* Bias toward explicit over clever.
-* Minimal diff: achieve the goal with the fewest new abstractions and files touched.
-* Observability is not optional — new codepaths need logs, metrics, or traces.
-* Security is not optional — new codepaths need threat modeling.
-* Deployments are not atomic — plan for partial states, rollbacks, and feature flags.
-* ASCII diagrams in code comments for complex designs — Models (state transitions), Services (pipelines), Controllers (request flow), Concerns (mixin behavior), Tests (non-obvious setup).
-* Diagram maintenance is part of the change — stale diagrams are worse than none.
-
-## Priority Hierarchy Under Context Pressure
-Step 0 > System audit > Error/rescue map > Test diagram > Failure modes > Opinionated recommendations > Everything else.
-Never skip Step 0, the system audit, the error/rescue map, or the failure modes section. These are the highest-leverage outputs.
-
-## PRE-REVIEW SYSTEM AUDIT (before Step 0)
-Before doing anything else, run a system audit. This is not the plan review — it is the context you need to review the plan intelligently.
-Run the following commands:
-```
-git log --oneline -30                          # Recent history
-git diff main --stat                           # What's already changed
-git stash list                                 # Any stashed work
+git log --oneline -30                          # 최근 히스토리
+git diff main --stat                           # 이미 변경된 것
+git stash list                                 # 스태시된 작업
 grep -r "TODO\|FIXME\|HACK\|XXX" --include="*.rb" --include="*.js" -l
-find . -name "*.rb" -newer Gemfile.lock | head -20  # Recently touched files
+find . -name "*.rb" -newer Gemfile.lock | head -20  # 최근 터치된 파일
 ```
-Then read CLAUDE.md, TODOS.md, and any existing architecture docs. When reading TODOS.md, specifically:
-* Note any TODOs this plan touches, blocks, or unlocks
-* Check if deferred work from prior reviews relates to this plan
-* Flag dependencies: does this plan enable or depend on deferred items?
-* Map known pain points (from TODOS) to this plan's scope
+그런 다음 CLAUDE.md, TODOS.md, 기존 아키텍처 문서를 읽습니다. 매핑:
+* 현재 시스템 상태는 무엇인가?
+* 현재 진행 중인 것(다른 열린 PR, 브랜치, 스태시된 변경사항)?
+* 이 계획과 가장 관련된 기존 알려진 문제점은 무엇인가?
+* 이 계획이 터치하는 파일에 FIXME/TODO 주석이 있나?
 
-Map:
-* What is the current system state?
-* What is already in flight (other open PRs, branches, stashed changes)?
-* What are the existing known pain points most relevant to this plan?
-* Are there any FIXME/TODO comments in files this plan touches?
+### 회고 확인
+이 브랜치의 git 로그를 확인합니다. 이전 검토 사이클을 시사하는 커밋이 있으면(검토 주도 리팩터링, 되돌린 변경사항), 변경된 내용과 현재 계획이 해당 영역을 다시 건드리는지 확인합니다. 이전에 문제가 있었던 영역을 더 적극적으로 검토합니다. 반복되는 문제 영역은 아키텍처 스멜입니다 — 아키텍처 우려사항으로 표면화합니다.
 
-### Retrospective Check
-Check the git log for this branch. If there are prior commits suggesting a previous review cycle (review-driven refactors, reverted changes), note what was changed and whether the current plan re-touches those areas. Be MORE aggressive reviewing areas that were previously problematic. Recurring problem areas are architectural smells — surface them as architectural concerns.
+### 취향 보정 (EXPANSION 모드만)
+기존 코드베이스에서 특히 잘 설계된 2-3개의 파일 또는 패턴을 식별합니다. 검토를 위한 스타일 레퍼런스로 기록합니다. 또한 1-2개의 답답하거나 잘못 설계된 패턴을 기록합니다 — 이것들이 반복을 피해야 하는 안티 패턴입니다.
+진행 전에 결과를 보고합니다.
 
-### Taste Calibration (EXPANSION mode only)
-Identify 2-3 files or patterns in the existing codebase that are particularly well-designed. Note them as style references for the review. Also note 1-2 patterns that are frustrating or poorly designed — these are anti-patterns to avoid repeating.
-Report findings before proceeding to Step 0.
+## Step 0: 핵 범위 도전 + 모드 선택
 
-## Step 0: Nuclear Scope Challenge + Mode Selection
+### 0A. 전제 도전
+1. 이것이 해결해야 할 올바른 문제인가? 다른 프레이밍이 극적으로 더 간단하거나 더 영향력 있는 해결책을 낳을 수 있나?
+2. 실제 사용자/비즈니스 결과는 무엇인가? 계획이 해당 결과로 가는 가장 직접적인 경로인가, 아니면 대리 문제를 해결하고 있나?
+3. 아무것도 하지 않으면 어떻게 되나? 실제 고통 포인트인가 아니면 가상인가?
 
-### 0A. Premise Challenge
-1. Is this the right problem to solve? Could a different framing yield a dramatically simpler or more impactful solution?
-2. What is the actual user/business outcome? Is the plan the most direct path to that outcome, or is it solving a proxy problem?
-3. What would happen if we did nothing? Real pain point or hypothetical one?
+### 0B. 기존 코드 활용
+1. 각 하위 문제를 이미 부분적으로 또는 완전히 해결하는 기존 코드는 무엇인가? 모든 하위 문제를 기존 코드에 매핑합니다. 병렬 것을 만드는 것보다 기존 흐름에서 출력을 캡처할 수 있나?
+2. 이 계획이 이미 존재하는 것을 다시 만들고 있나? 그렇다면 리팩터링보다 다시 만드는 것이 더 나은 이유를 설명합니다.
 
-### 0B. Existing Code Leverage
-1. What existing code already partially or fully solves each sub-problem? Map every sub-problem to existing code. Can we capture outputs from existing flows rather than building parallel ones?
-2. Is this plan rebuilding anything that already exists? If yes, explain why rebuilding is better than refactoring.
-
-### 0C. Dream State Mapping
-Describe the ideal end state of this system 12 months from now. Does this plan move toward that state or away from it?
+### 0C. 꿈의 상태 매핑
+이 시스템의 12개월 후 이상적인 최종 상태를 설명합니다. 이 계획이 그 상태를 향해 나아가는가 아니면 멀어지는가?
 ```
-  CURRENT STATE                  THIS PLAN                  12-MONTH IDEAL
-  [describe]          --->       [describe delta]    --->    [describe target]
+  현재 상태                  이 계획                  12개월 이상
+  [설명]          --->       [변화 설명]    --->    [목표 설명]
 ```
 
-### 0D. Mode-Specific Analysis
-**For SCOPE EXPANSION** — run all three:
-1. 10x check: What's the version that's 10x more ambitious and delivers 10x more value for 2x the effort? Describe it concretely.
-2. Platonic ideal: If the best engineer in the world had unlimited time and perfect taste, what would this system look like? What would the user feel when using it? Start from experience, not architecture.
-3. Delight opportunities: What adjacent 30-minute improvements would make this feature sing? Things where a user would think "oh nice, they thought of that." List at least 3.
+### 0D. 모드별 분석
+**SCOPE EXPANSION의 경우** — 세 가지 모두 실행:
+1. 10x 확인: 2배의 노력으로 10배 더 야심차고 10배 더 많은 가치를 제공하는 버전은 무엇인가? 구체적으로 설명합니다.
+2. 플라톤적 이상: 세계 최고의 엔지니어가 무한한 시간과 완벽한 취향을 갖는다면 이 시스템은 어떻게 보일까? 사용할 때 어떤 느낌인가? 아키텍처가 아닌 경험에서 시작합니다.
+3. 기쁨의 기회: 이 기능을 빛나게 만들 인접한 30분 개선사항은 무엇인가? 사용자가 "오, 좋네, 그것까지 생각했군요"라고 생각할 것들. 최소 3개 나열.
 
-**For HOLD SCOPE** — run this:
-1. Complexity check: If the plan touches more than 8 files or introduces more than 2 new classes/services, treat that as a smell and challenge whether the same goal can be achieved with fewer moving parts.
-2. What is the minimum set of changes that achieves the stated goal? Flag any work that could be deferred without blocking the core objective.
+**HOLD SCOPE의 경우** — 이것 실행:
+1. 복잡성 확인: 계획이 8개 이상의 파일을 건드리거나 2개 이상의 새 클래스/서비스를 도입한다면, 냄새로 취급하고 더 적은 움직이는 부분으로 동일한 목표를 달성할 수 있는지 도전합니다.
+2. 명시된 목표를 달성하는 최소 변경 세트는 무엇인가? 핵심 목표를 차단하지 않고 연기할 수 있는 작업에 플래그합니다.
 
-**For SCOPE REDUCTION** — run this:
-1. Ruthless cut: What is the absolute minimum that ships value to a user? Everything else is deferred. No exceptions.
-2. What can be a follow-up PR? Separate "must ship together" from "nice to ship together."
+**SCOPE REDUCTION의 경우** — 이것 실행:
+1. 가차없는 축소: 사용자에게 가치를 제공하는 절대 최소는 무엇인가? 나머지는 전부 연기됩니다. 예외 없음.
+2. 후속 PR이 될 수 있는 것은 무엇인가? "반드시 함께 배포"와 "좋으면 함께 배포"를 분리합니다.
 
-### 0E. Temporal Interrogation (EXPANSION and HOLD modes)
-Think ahead to implementation: What decisions will need to be made during implementation that should be resolved NOW in the plan?
+### 0E. 시간적 심문 (EXPANSION 및 HOLD 모드)
+구현을 앞두고 생각합니다: 계획에서 지금 해결해야 하는 구현 중에 내려야 할 결정은 무엇인가?
 ```
-  HOUR 1 (foundations):     What does the implementer need to know?
-  HOUR 2-3 (core logic):   What ambiguities will they hit?
-  HOUR 4-5 (integration):  What will surprise them?
-  HOUR 6+ (polish/tests):  What will they wish they'd planned for?
+  1시간 (기반):     구현자가 알아야 할 것은?
+  2-3시간 (핵심 로직): 어떤 모호함에 부딪힐 것인가?
+  4-5시간 (통합):  무엇이 그들을 놀라게 할 것인가?
+  6시간+ (다듬기/테스트): 미리 계획했으면 좋았을 것은?
 ```
-Surface these as questions for the user NOW, not as "figure it out later."
+이것들을 지금 사용자를 위한 질문으로 표면화합니다 — "나중에 알아보세요"가 아닌.
 
-### 0F. Mode Selection
-Present three options:
-1. **SCOPE EXPANSION:** The plan is good but could be great. Propose the ambitious version, then review that. Push scope up. Build the cathedral.
-2. **HOLD SCOPE:** The plan's scope is right. Review it with maximum rigor — architecture, security, edge cases, observability, deployment. Make it bulletproof.
-3. **SCOPE REDUCTION:** The plan is overbuilt or wrong-headed. Propose a minimal version that achieves the core goal, then review that.
+### 0F. 모드 선택
+세 가지 옵션을 제시합니다:
+1. **SCOPE EXPANSION:** 계획은 좋지만 훌륭할 수 있습니다. 야심찬 버전을 제안한 후 검토합니다. 범위를 높입니다. 대성당을 만듭니다.
+2. **HOLD SCOPE:** 계획의 범위가 적절합니다. 최대의 엄밀성으로 검토합니다 — 아키텍처, 보안, 엣지 케이스, 관찰성, 배포. 방탄으로 만듭니다.
+3. **SCOPE REDUCTION:** 계획이 과도하게 만들어졌거나 방향이 잘못됐습니다. 핵심 목표를 달성하는 최소 버전을 제안한 후 검토합니다.
 
-Context-dependent defaults:
-* Greenfield feature → default EXPANSION
-* Bug fix or hotfix → default HOLD SCOPE
-* Refactor → default HOLD SCOPE
-* Plan touching >15 files → suggest REDUCTION unless user pushes back
-* User says "go big" / "ambitious" / "cathedral" → EXPANSION, no question
+상황에 따른 기본값:
+* 그린필드 기능 → 기본 EXPANSION
+* 버그 수정 또는 핫픽스 → 기본 HOLD SCOPE
+* 리팩터링 → 기본 HOLD SCOPE
+* 15개 이상의 파일에 접근하는 계획 → 사용자가 반대하지 않으면 REDUCTION 제안
+* 사용자가 "크게 해" / "야심차게" / "대성당" → EXPANSION, 의문 없음
 
-Once selected, commit fully. Do not silently drift.
-**STOP.** AskUserQuestion once per issue. Do NOT batch. Recommend + WHY. If no issues or fix is obvious, state what you'll do and move on — don't waste a question. Do NOT proceed until user responds.
+선택되면 완전히 커밋합니다. 조용히 표류하지 않습니다.
+**중지.** 이슈당 AskUserQuestion 하나. 배치하지 않습니다. 권고사항 + 이유. 이슈가 없거나 수정이 명확하면, 할 것을 말하고 계속 진행합니다 — 질문 낭비하지 않습니다. 사용자 응답까지 진행하지 않습니다.
 
-## Review Sections (10 sections, after scope and mode are agreed)
+## 검토 섹션 (범위와 모드 합의 후 10개 섹션)
 
-### Section 1: Architecture Review
-Evaluate and diagram:
-* Overall system design and component boundaries. Draw the dependency graph.
-* Data flow — all four paths. For every new data flow, ASCII diagram the:
-    * Happy path (data flows correctly)
-    * Nil path (input is nil/missing — what happens?)
-    * Empty path (input is present but empty/zero-length — what happens?)
-    * Error path (upstream call fails — what happens?)
-* State machines. ASCII diagram for every new stateful object. Include impossible/invalid transitions and what prevents them.
-* Coupling concerns. Which components are now coupled that weren't before? Is that coupling justified? Draw the before/after dependency graph.
-* Scaling characteristics. What breaks first under 10x load? Under 100x?
-* Single points of failure. Map them.
-* Security architecture. Auth boundaries, data access patterns, API surfaces. For each new endpoint or data mutation: who can call it, what do they get, what can they change?
-* Production failure scenarios. For each new integration point, describe one realistic production failure (timeout, cascade, data corruption, auth failure) and whether the plan accounts for it.
-* Rollback posture. If this ships and immediately breaks, what's the rollback procedure? Git revert? Feature flag? DB migration rollback? How long?
+### 섹션 1: 아키텍처 검토
+평가 및 다이어그램 작성:
+* 전체 시스템 디자인 및 컴포넌트 경계. 의존성 그래프를 그립니다.
+* 데이터 흐름 — 4개의 모든 경로. 모든 새 데이터 흐름에 대해 ASCII 다이어그램으로:
+    * 정상 경로 (데이터가 올바르게 흐름)
+    * Nil 경로 (입력이 nil/missing — 어떻게 되나?)
+    * 빈 경로 (입력이 있지만 비어있음/길이 0 — 어떻게 되나?)
+    * 에러 경로 (업스트림 호출 실패 — 어떻게 되나?)
+* 상태 기계. 모든 새로운 상태가 있는 객체에 대한 ASCII 다이어그램. 불가능/유효하지 않은 전환과 이를 방지하는 것을 포함.
+* 결합 우려사항. 이전에 연결되지 않았던 어떤 컴포넌트가 이제 연결되나? 그 결합이 정당화되나? 변경 전후 의존성 그래프를 그립니다.
+* 스케일링 특성. 10x 부하에서 무엇이 먼저 깨지나? 100x에서는?
+* 단일 실패 지점. 매핑합니다.
+* 보안 아키텍처. 인증 경계, 데이터 접근 패턴, API 표면. 각 새 엔드포인트나 데이터 변형에 대해: 누가 호출할 수 있나, 무엇을 얻나, 무엇을 변경할 수 있나?
+* 프로덕션 실패 시나리오. 각 새 통합 지점에 대해 하나의 현실적인 프로덕션 실패(타임아웃, 캐스케이드, 데이터 손상, 인증 실패)와 계획이 이를 처리하는지 설명합니다.
+* 롤백 자세. 이것이 출시되고 즉시 깨지면 롤백 절차는? Git revert? 기능 플래그? DB 마이그레이션 롤백? 얼마나 오래?
 
-**EXPANSION mode additions:**
-* What would make this architecture beautiful? Not just correct — elegant. Is there a design that would make a new engineer joining in 6 months say "oh, that's clever and obvious at the same time"?
-* What infrastructure would make this feature a platform that other features can build on?
+**EXPANSION 모드 추가사항:**
+* 이 아키텍처를 아름답게 만드는 것은 무엇인가? 단지 올바른 것뿐만이 아닌 — 우아한 것. 6개월 후 새로운 엔지니어가 "오, 그것은 영리하면서도 명확하다"라고 말할 디자인이 있나?
+* 이 기능을 다른 기능이 만들 수 있는 플랫폼으로 만드는 인프라는 무엇인가?
 
-Required ASCII diagram: full system architecture showing new components and their relationships to existing ones.
-**STOP.** AskUserQuestion once per issue. Do NOT batch. Recommend + WHY. If no issues or fix is obvious, state what you'll do and move on — don't waste a question. Do NOT proceed until user responds.
+필수 ASCII 다이어그램: 기존 것들과의 관계에서 새 컴포넌트를 보여주는 전체 시스템 아키텍처.
+**중지.** 이슈당 AskUserQuestion 하나. 배치하지 않습니다. 권고사항 + 이유. 이슈가 없거나 수정이 명확하면, 할 것을 말하고 계속 진행합니다. 사용자 응답까지 진행하지 않습니다.
 
-### Section 2: Error & Rescue Map
-This is the section that catches silent failures. It is not optional.
-For every new method, service, or codepath that can fail, fill in this table:
+### 섹션 2: 에러 및 Rescue 맵
+이것이 조용한 실패를 잡는 섹션입니다. 선택 사항이 아닙니다.
+실패할 수 있는 모든 새 메서드, 서비스, 코드패스에 대해 이 테이블을 채웁니다:
 ```
-  METHOD/CODEPATH          | WHAT CAN GO WRONG           | EXCEPTION CLASS
-  -------------------------|-----------------------------|-----------------
-  ExampleService#call      | API timeout                 | Faraday::TimeoutError
-                           | API returns 429             | RateLimitError
-                           | API returns malformed JSON  | JSON::ParserError
-                           | DB connection pool exhausted| ActiveRecord::ConnectionTimeoutError
-                           | Record not found            | ActiveRecord::RecordNotFound
-  -------------------------|-----------------------------|-----------------
+  메서드/코드패스            | 무엇이 잘못될 수 있나        | 예외 클래스
+  --------------------------|------------------------------|------------------
+  ExampleService#call       | API 타임아웃                  | Faraday::TimeoutError
+                            | API 429 반환                  | RateLimitError
+                            | API 잘못된 JSON 반환          | JSON::ParserError
+                            | DB 연결 풀 소진              | ActiveRecord::ConnectionTimeoutError
+                            | 레코드 없음                   | ActiveRecord::RecordNotFound
+  --------------------------|------------------------------|------------------
 
-  EXCEPTION CLASS              | RESCUED?  | RESCUE ACTION          | USER SEES
-  -----------------------------|-----------|------------------------|------------------
-  Faraday::TimeoutError        | Y         | Retry 2x, then raise   | "Service temporarily unavailable"
-  RateLimitError               | Y         | Backoff + retry         | Nothing (transparent)
-  JSON::ParserError            | N ← GAP   | —                      | 500 error ← BAD
-  ConnectionTimeoutError       | N ← GAP   | —                      | 500 error ← BAD
-  ActiveRecord::RecordNotFound | Y         | Return nil, log warning | "Not found" message
+  예외 클래스                    | Rescue됨? | Rescue 액션         | 사용자 보는 것
+  -------------------------------|-----------|---------------------|-------------------
+  Faraday::TimeoutError          | Y         | 2회 재시도 후 raise   | "서비스 일시 이용 불가"
+  RateLimitError                 | Y         | 백오프 + 재시도       | 없음 (투명)
+  JSON::ParserError              | N ← 갭    | —                   | 500 에러 ← 나쁨
+  ConnectionTimeoutError         | N ← 갭    | —                   | 500 에러 ← 나쁨
+  ActiveRecord::RecordNotFound   | Y         | nil 반환, 경고 로그   | "찾을 수 없음" 메시지
 ```
-Rules for this section:
-* `rescue StandardError` is ALWAYS a smell. Name the specific exceptions.
-* `rescue => e` with only `Rails.logger.error(e.message)` is insufficient. Log the full context: what was being attempted, with what arguments, for what user/request.
-* Every rescued error must either: retry with backoff, degrade gracefully with a user-visible message, or re-raise with added context. "Swallow and continue" is almost never acceptable.
-* For each GAP (unrescued error that should be rescued): specify the rescue action and what the user should see.
-* For LLM/AI service calls specifically: what happens when the response is malformed? When it's empty? When it hallucinates invalid JSON? When the model returns a refusal? Each of these is a distinct failure mode.
-**STOP.** AskUserQuestion once per issue. Do NOT batch. Recommend + WHY. If no issues or fix is obvious, state what you'll do and move on — don't waste a question. Do NOT proceed until user responds.
+이 섹션의 규칙:
+* `rescue StandardError`는 항상 스멜입니다. 구체적인 예외를 명시합니다.
+* `rescue => e`와 `Rails.logger.error(e.message)`만으로는 불충분합니다. 전체 컨텍스트를 로그합니다: 무엇을 시도했는지, 어떤 인수로, 어떤 사용자/요청에 대해.
+* 모든 rescue된 에러는 반드시: 백오프로 재시도하거나, 사용자 가시적 메시지로 우아하게 저하되거나, 추가 컨텍스트와 함께 다시 raise해야 합니다. "삼키고 계속"은 거의 허용되지 않습니다.
+* 각 갭(rescue되어야 하는 rescue되지 않은 에러)에 대해: rescue 액션과 사용자가 봐야 할 것을 명시합니다.
+* LLM/AI 서비스 호출의 경우: 응답이 잘못된 형식일 때? 비어있을 때? 잘못된 JSON을 환각할 때? 모델이 거부를 반환할 때? 이것들은 각각 별개의 실패 모드입니다.
+**중지.** 이슈당 AskUserQuestion 하나. 배치하지 않습니다. 사용자 응답까지 진행하지 않습니다.
 
-### Section 3: Security & Threat Model
-Security is not a sub-bullet of architecture. It gets its own section.
-Evaluate:
-* Attack surface expansion. What new attack vectors does this plan introduce? New endpoints, new params, new file paths, new background jobs?
-* Input validation. For every new user input: is it validated, sanitized, and rejected loudly on failure? What happens with: nil, empty string, string when integer expected, string exceeding max length, unicode edge cases, HTML/script injection attempts?
-* Authorization. For every new data access: is it scoped to the right user/role? Is there a direct object reference vulnerability? Can user A access user B's data by manipulating IDs?
-* Secrets and credentials. New secrets? In env vars, not hardcoded? Rotatable?
-* Dependency risk. New gems/npm packages? Security track record?
-* Data classification. PII, payment data, credentials? Handling consistent with existing patterns?
-* Injection vectors. SQL, command, template, LLM prompt injection — check all.
-* Audit logging. For sensitive operations: is there an audit trail?
+### 섹션 3: 보안 및 위협 모델
+보안은 아키텍처의 하위 항목이 아닙니다. 자체 섹션을 갖습니다.
+평가:
+* 공격 표면 확장. 이 계획이 도입하는 새 공격 벡터는? 새 엔드포인트, 새 파라미터, 새 파일 경로, 새 백그라운드 잡?
+* 입력 검증. 모든 새 사용자 입력에 대해: 검증, 살균, 실패 시 큰 소리로 거절되나? 무엇이 일어나는지: nil, 빈 문자열, 정수가 예상될 때 문자열, 최대 길이를 초과하는 문자열, 유니코드 엣지 케이스, HTML/스크립트 주입 시도?
+* 권한 부여. 모든 새 데이터 접근에 대해: 올바른 사용자/역할로 스코핑됐나? 직접 객체 참조 취약점이 있나? 사용자 A가 ID를 조작하여 사용자 B의 데이터에 접근할 수 있나?
+* 시크릿 및 자격증명. 새 시크릿? 환경 변수에 있고 하드코딩되지 않나? 교체 가능한가?
+* 의존성 위험. 새 gem/npm 패키지? 보안 실적?
+* 데이터 분류. PII, 결제 데이터, 자격증명? 기존 패턴과 일관되게 처리되나?
+* 주입 벡터. SQL, 커맨드, 템플릿, LLM 프롬프트 주입 — 모두 확인합니다.
+* 감사 로깅. 민감한 작업에 대해: 감사 추적이 있나?
 
-For each finding: threat, likelihood (High/Med/Low), impact (High/Med/Low), and whether the plan mitigates it.
-**STOP.** AskUserQuestion once per issue. Do NOT batch. Recommend + WHY. If no issues or fix is obvious, state what you'll do and move on — don't waste a question. Do NOT proceed until user responds.
+각 발견에 대해: 위협, 가능성(High/Med/Low), 영향(High/Med/Low), 계획이 이를 완화하는지.
+**중지.** 이슈당 AskUserQuestion 하나. 사용자 응답까지 진행하지 않습니다.
 
-### Section 4: Data Flow & Interaction Edge Cases
-This section traces data through the system and interactions through the UI with adversarial thoroughness.
+### 섹션 4: 데이터 흐름 및 상호작용 엣지 케이스
+이 섹션은 데이터를 시스템을 통해 추적하고 적대적 철저함으로 UI를 통해 상호작용을 추적합니다.
 
-**Data Flow Tracing:** For every new data flow, produce an ASCII diagram showing:
+**데이터 흐름 추적:** 모든 새 데이터 흐름에 대해 ASCII 다이어그램 생성:
 ```
-  INPUT ──▶ VALIDATION ──▶ TRANSFORM ──▶ PERSIST ──▶ OUTPUT
-    │            │              │            │           │
-    ▼            ▼              ▼            ▼           ▼
-  [nil?]    [invalid?]    [exception?]  [conflict?]  [stale?]
-  [empty?]  [too long?]   [timeout?]    [dup key?]   [partial?]
-  [wrong    [wrong type?] [OOM?]        [locked?]    [encoding?]
-   type?]
+  입력 ──▶ 검증 ──▶ 변환 ──▶ 저장 ──▶ 출력
+    │          │          │         │          │
+    ▼          ▼          ▼         ▼          ▼
+  [nil?]  [무효?]  [예외?]  [충돌?]  [오래됨?]
+  [비어  [너무   [타임     [중복   [부분?]
+   있음?]  길음?]  아웃?]    키?]
 ```
-For each node: what happens on each shadow path? Is it tested?
+각 노드에 대해: 각 섀도 경로에서 무슨 일이 일어나나? 테스트됐나?
 
-**Interaction Edge Cases:** For every new user-visible interaction, evaluate:
+**상호작용 엣지 케이스:** 모든 새 사용자 가시적 상호작용에 대해 평가:
 ```
-  INTERACTION          | EDGE CASE              | HANDLED? | HOW?
-  ---------------------|------------------------|----------|--------
-  Form submission      | Double-click submit    | ?        |
-                       | Submit with stale CSRF | ?        |
-                       | Submit during deploy   | ?        |
-  Async operation      | User navigates away    | ?        |
-                       | Operation times out    | ?        |
-                       | Retry while in-flight  | ?        |
-  List/table view      | Zero results           | ?        |
-                       | 10,000 results         | ?        |
-                       | Results change mid-page| ?        |
-  Background job       | Job fails after 3 of   | ?        |
-                       | 10 items processed     |          |
-                       | Job runs twice (dup)   | ?        |
-                       | Queue backs up 2 hours | ?        |
+  상호작용          | 엣지 케이스              | 처리됨? | 방법?
+  ------------------|--------------------------|---------|------
+  폼 제출           | 더블 클릭 제출            | ?        |
+                    | 오래된 CSRF로 제출        | ?        |
+                    | 배포 중 제출              | ?        |
+  비동기 작업       | 사용자 페이지 이동        | ?        |
+                    | 작업 타임아웃            | ?        |
+                    | 진행 중 재시도            | ?        |
+  목록/테이블 뷰    | 결과 없음                | ?        |
+                    | 10,000 결과              | ?        |
+                    | 페이지 중간에 결과 변경   | ?        |
+  백그라운드 잡     | 10개 중 3개 처리 후 실패  | ?        |
+                    | 잡이 두 번 실행 (중복)   | ?        |
+                    | 대기열이 2시간 지연       | ?        |
 ```
-Flag any unhandled edge case as a gap. For each gap, specify the fix.
-**STOP.** AskUserQuestion once per issue. Do NOT batch. Recommend + WHY. If no issues or fix is obvious, state what you'll do and move on — don't waste a question. Do NOT proceed until user responds.
+처리되지 않은 모든 엣지 케이스를 갭으로 플래그합니다. 각 갭에 대해 수정을 명시합니다.
+**중지.** 이슈당 AskUserQuestion 하나. 사용자 응답까지 진행하지 않습니다.
 
-### Section 5: Code Quality Review
-Evaluate:
-* Code organization and module structure. Does new code fit existing patterns? If it deviates, is there a reason?
-* DRY violations. Be aggressive. If the same logic exists elsewhere, flag it and reference the file and line.
-* Naming quality. Are new classes, methods, and variables named for what they do, not how they do it?
-* Error handling patterns. (Cross-reference with Section 2 — this section reviews the patterns; Section 2 maps the specifics.)
-* Missing edge cases. List explicitly: "What happens when X is nil?" "When the API returns 429?" etc.
-* Over-engineering check. Any new abstraction solving a problem that doesn't exist yet?
-* Under-engineering check. Anything fragile, assuming happy path only, or missing obvious defensive checks?
-* Cyclomatic complexity. Flag any new method that branches more than 5 times. Propose a refactor.
-**STOP.** AskUserQuestion once per issue. Do NOT batch. Recommend + WHY. If no issues or fix is obvious, state what you'll do and move on — don't waste a question. Do NOT proceed until user responds.
+### 섹션 5: 코드 품질 검토
+평가:
+* 코드 조직 및 모듈 구조. 새 코드가 기존 패턴에 맞나? 벗어난다면 이유가 있나?
+* DRY 위반. 적극적으로. 동일한 로직이 다른 곳에 있으면, 플래그를 달고 파일과 줄을 참조합니다.
+* 명명 품질. 새 클래스, 메서드, 변수가 어떻게 하는지가 아닌 무엇을 하는지로 명명됐나?
+* 에러 처리 패턴. (섹션 2와 상호 참조)
+* 누락된 엣지 케이스. 명시적으로 나열: "X가 nil일 때 어떻게 되나?" "API가 429를 반환할 때?" 등.
+* 과도한 엔지니어링 확인. 아직 존재하지 않는 문제를 해결하는 새 추상화가 있나?
+* 불충분한 엔지니어링 확인. 취약하거나, 정상 경로만 가정하거나, 명백한 방어적 확인이 없는 것이 있나?
+* 순환 복잡성. 5번 이상 분기하는 새 메서드에 플래그를 달고 리팩터링을 제안합니다.
+**중지.** 이슈당 AskUserQuestion 하나. 사용자 응답까지 진행하지 않습니다.
 
-### Section 6: Test Review
-Make a complete diagram of every new thing this plan introduces:
+### 섹션 6: 테스트 검토
+이 계획이 도입하는 모든 새로운 것을 완전히 다이어그램으로 그립니다:
 ```
-  NEW UX FLOWS:
-    [list each new user-visible interaction]
+  새 UX 흐름:
+    [각 새 사용자 가시적 상호작용 나열]
 
-  NEW DATA FLOWS:
-    [list each new path data takes through the system]
+  새 데이터 흐름:
+    [데이터가 시스템을 통해 가는 각 새 경로 나열]
 
-  NEW CODEPATHS:
-    [list each new branch, condition, or execution path]
+  새 코드패스:
+    [각 새 분기, 조건, 또는 실행 경로 나열]
 
-  NEW BACKGROUND JOBS / ASYNC WORK:
-    [list each]
+  새 백그라운드 잡 / 비동기 작업:
+    [각각 나열]
 
-  NEW INTEGRATIONS / EXTERNAL CALLS:
-    [list each]
+  새 통합 / 외부 호출:
+    [각각 나열]
 
-  NEW ERROR/RESCUE PATHS:
-    [list each — cross-reference Section 2]
+  새 에러/rescue 경로:
+    [각각 나열 — 섹션 2와 상호 참조]
 ```
-For each item in the diagram:
-* What type of test covers it? (Unit / Integration / System / E2E)
-* Does a test for it exist in the plan? If not, write the test spec header.
-* What is the happy path test?
-* What is the failure path test? (Be specific — which failure?)
-* What is the edge case test? (nil, empty, boundary values, concurrent access)
+다이어그램의 각 항목에 대해:
+* 어떤 유형의 테스트가 커버하나? (단위 / 통합 / 시스템 / E2E)
+* 계획에 그것에 대한 테스트가 있나? 없다면, 테스트 스펙 헤더를 작성합니다.
+* 정상 경로 테스트는 무엇인가?
+* 실패 경로 테스트는 무엇인가? (구체적 — 어떤 실패?)
+* 엣지 케이스 테스트는 무엇인가? (nil, 빈 값, 경계값, 동시 접근)
 
-Test ambition check (all modes): For each new feature, answer:
-* What's the test that would make you confident shipping at 2am on a Friday?
-* What's the test a hostile QA engineer would write to break this?
-* What's the chaos test?
+테스트 야망 확인 (모든 모드): 각 새 기능에 대해:
+* 금요일 오후 2시에 출시하면서 자신감을 가질 수 있는 테스트는?
+* 적대적인 QA 엔지니어가 이것을 깨기 위해 작성할 테스트는?
+* 카오스 테스트는?
 
-Test pyramid check: Many unit, fewer integration, few E2E? Or inverted?
-Flakiness risk: Flag any test depending on time, randomness, external services, or ordering.
-Load/stress test requirements: For any new codepath called frequently or processing significant data.
+LLM/프롬프트 변경: CLAUDE.md에서 "Prompt/LLM 변경" 파일 패턴을 확인합니다. 이 계획이 해당 패턴을 터치하면, 어떤 eval 스위트를 실행해야 하는지, 어떤 케이스를 추가해야 하는지, 어떤 기준선과 비교할지 명시합니다.
+**중지.** 이슈당 AskUserQuestion 하나. 사용자 응답까지 진행하지 않습니다.
 
-For LLM/prompt changes: Check CLAUDE.md for the "Prompt/LLM changes" file patterns. If this plan touches ANY of those patterns, state which eval suites must be run, which cases should be added, and what baselines to compare against.
-**STOP.** AskUserQuestion once per issue. Do NOT batch. Recommend + WHY. If no issues or fix is obvious, state what you'll do and move on — don't waste a question. Do NOT proceed until user responds.
+### 섹션 7: 성능 검토
+평가:
+* N+1 쿼리. 모든 새 ActiveRecord 연관 순회에 대해: includes/preload가 있나?
+* 메모리 사용. 모든 새 데이터 구조에 대해: 프로덕션에서의 최대 크기는?
+* 데이터베이스 인덱스. 모든 새 쿼리에 대해: 인덱스가 있나?
+* 캐싱 기회. 모든 비싼 계산이나 외부 호출에 대해: 캐시해야 하나?
+* 백그라운드 잡 크기 조정. 모든 새 잡에 대해: 최악의 경우 페이로드, 런타임, 재시도 동작?
+* 느린 경로. 새 코드패스 중 상위 3개에서 가장 느린 것과 예상 p99 지연 시간.
+* 연결 풀 압박. 새 DB 연결, Redis 연결, HTTP 연결?
+**중지.** 이슈당 AskUserQuestion 하나. 사용자 응답까지 진행하지 않습니다.
 
-### Section 7: Performance Review
-Evaluate:
-* N+1 queries. For every new ActiveRecord association traversal: is there an includes/preload?
-* Memory usage. For every new data structure: what's the maximum size in production?
-* Database indexes. For every new query: is there an index?
-* Caching opportunities. For every expensive computation or external call: should it be cached?
-* Background job sizing. For every new job: worst-case payload, runtime, retry behavior?
-* Slow paths. Top 3 slowest new codepaths and estimated p99 latency.
-* Connection pool pressure. New DB connections, Redis connections, HTTP connections?
-**STOP.** AskUserQuestion once per issue. Do NOT batch. Recommend + WHY. If no issues or fix is obvious, state what you'll do and move on — don't waste a question. Do NOT proceed until user responds.
+### 섹션 8: 관찰성 및 디버깅 가능성 검토
+새 시스템은 고장납니다. 이 섹션은 왜 고장났는지 볼 수 있도록 보장합니다.
+평가:
+* 로깅. 모든 새 코드패스에 대해: 진입, 종료, 각 중요한 분기에서 구조적 로그 줄이 있나?
+* 메트릭. 모든 새 기능에 대해: 작동 중임을 알려주는 메트릭은? 고장났음을 알려주는 것은?
+* 추적. 새 서비스 간 또는 잡 간 흐름에 대해: trace ID가 전파되나?
+* 알림. 어떤 새 알림이 있어야 하나?
+* 대시보드. 1일에 원하는 새 대시보드 패널은 무엇인가?
+* 디버깅 가능성. 3주 후 버그가 보고된다면, 로그만으로 무슨 일이 있었는지 재구성할 수 있나?
+* 관리자 도구. 관리자 UI 또는 rake 태스크가 필요한 새 운영 태스크가 있나?
+* 런북. 각 새 실패 모드에 대해: 운영 대응은?
 
-### Section 8: Observability & Debuggability Review
-New systems break. This section ensures you can see why.
-Evaluate:
-* Logging. For every new codepath: structured log lines at entry, exit, and each significant branch?
-* Metrics. For every new feature: what metric tells you it's working? What tells you it's broken?
-* Tracing. For new cross-service or cross-job flows: trace IDs propagated?
-* Alerting. What new alerts should exist?
-* Dashboards. What new dashboard panels do you want on day 1?
-* Debuggability. If a bug is reported 3 weeks post-ship, can you reconstruct what happened from logs alone?
-* Admin tooling. New operational tasks that need admin UI or rake tasks?
-* Runbooks. For each new failure mode: what's the operational response?
+**EXPANSION 모드 추가사항:**
+* 이 기능을 운영하는 것을 즐겁게 만드는 관찰성은 무엇인가?
+**중지.** 이슈당 AskUserQuestion 하나. 사용자 응답까지 진행하지 않습니다.
 
-**EXPANSION mode addition:**
-* What observability would make this feature a joy to operate?
-**STOP.** AskUserQuestion once per issue. Do NOT batch. Recommend + WHY. If no issues or fix is obvious, state what you'll do and move on — don't waste a question. Do NOT proceed until user responds.
+### 섹션 9: 배포 및 롤아웃 검토
+평가:
+* 마이그레이션 안전성. 모든 새 DB 마이그레이션에 대해: 하위 호환 가능한가? 제로 다운타임? 테이블 잠금?
+* 기능 플래그. 어떤 부분이 기능 플래그 뒤에 있어야 하나?
+* 롤아웃 순서. 올바른 시퀀스: 먼저 마이그레이션, 그 다음 배포?
+* 롤백 계획. 명시적 단계별.
+* 배포 시간 위험 기간. 구 코드와 신 코드가 동시에 실행 — 무엇이 깨지나?
+* 환경 일치. 스테이징에서 테스트됐나?
+* 배포 후 검증 체크리스트. 처음 5분? 처음 1시간?
+* 스모크 테스트. 배포 후 즉시 실행해야 하는 자동화된 확인은?
 
-### Section 9: Deployment & Rollout Review
-Evaluate:
-* Migration safety. For every new DB migration: backward-compatible? Zero-downtime? Table locks?
-* Feature flags. Should any part be behind a feature flag?
-* Rollout order. Correct sequence: migrate first, deploy second?
-* Rollback plan. Explicit step-by-step.
-* Deploy-time risk window. Old code and new code running simultaneously — what breaks?
-* Environment parity. Tested in staging?
-* Post-deploy verification checklist. First 5 minutes? First hour?
-* Smoke tests. What automated checks should run immediately post-deploy?
+**EXPANSION 모드 추가사항:**
+* 이 기능 배포를 일상적으로 만드는 배포 인프라는 무엇인가?
+**중지.** 이슈당 AskUserQuestion 하나. 사용자 응답까지 진행하지 않습니다.
 
-**EXPANSION mode addition:**
-* What deploy infrastructure would make shipping this feature routine?
-**STOP.** AskUserQuestion once per issue. Do NOT batch. Recommend + WHY. If no issues or fix is obvious, state what you'll do and move on — don't waste a question. Do NOT proceed until user responds.
+### 섹션 10: 장기적 궤도 검토
+평가:
+* 도입된 기술 부채. 코드 부채, 운영 부채, 테스트 부채, 문서 부채.
+* 경로 의존성. 이것이 미래 변경을 더 어렵게 만드나?
+* 지식 집중. 새 엔지니어를 위한 문서가 충분한가?
+* 가역성. 1-5로 평가: 1 = 일방향 문, 5 = 쉽게 가역 가능.
+* 에코시스템 맞춤. Rails/JS 에코시스템 방향과 일치하나?
+* 1년 질문. 12개월 후 새 엔지니어로 이 계획을 읽으면 — 명확한가?
 
-### Section 10: Long-Term Trajectory Review
-Evaluate:
-* Technical debt introduced. Code debt, operational debt, testing debt, documentation debt.
-* Path dependency. Does this make future changes harder?
-* Knowledge concentration. Documentation sufficient for a new engineer?
-* Reversibility. Rate 1-5: 1 = one-way door, 5 = easily reversible.
-* Ecosystem fit. Aligns with Rails/JS ecosystem direction?
-* The 1-year question. Read this plan as a new engineer in 12 months — obvious?
+**EXPANSION 모드 추가사항:**
+* 이것이 출시된 후 무엇이 오나? Phase 2? Phase 3? 아키텍처가 그 궤도를 지원하나?
+* 플랫폼 잠재력. 이것이 다른 기능이 활용할 수 있는 기능을 만드나?
+**중지.** 이슈당 AskUserQuestion 하나. 사용자 응답까지 진행하지 않습니다.
 
-**EXPANSION mode additions:**
-* What comes after this ships? Phase 2? Phase 3? Does the architecture support that trajectory?
-* Platform potential. Does this create capabilities other features can leverage?
-**STOP.** AskUserQuestion once per issue. Do NOT batch. Recommend + WHY. If no issues or fix is obvious, state what you'll do and move on — don't waste a question. Do NOT proceed until user responds.
+## CRITICAL 규칙 — 질문하는 방법
+모든 AskUserQuestion은 반드시: (1) 2-3개의 구체적인 문자 옵션 제시, (2) 권고하는 옵션을 FIRST에 명시, (3) 엔지니어링 선호도에 매핑하여 해당 옵션을 다른 것보다 선호하는 이유를 1-2문장으로 설명. 하나의 질문에 여러 이슈를 묶지 않습니다. 예/아니오 질문 없음. 개방형 질문은 개발자 의도, 아키텍처 방향, 12개월 목표, 또는 최종 사용자가 원하는 것에 대해 진정한 모호함이 있을 때만 허용됩니다 — 구체적으로 무엇이 모호한지 설명해야 합니다.
 
-## CRITICAL RULE — How to ask questions
-Follow the AskUserQuestion format from the Preamble above. Additional rules for plan reviews:
-* **One issue = one AskUserQuestion call.** Never combine multiple issues into one question.
-* Describe the problem concretely, with file and line references.
-* Present 2-3 options, including "do nothing" where reasonable.
-* For each option: effort, risk, and maintenance burden in one line.
-* **Map the reasoning to my engineering preferences above.** One sentence connecting your recommendation to a specific preference.
-* Label with issue NUMBER + option LETTER (e.g., "3A", "3B").
-* **Escape hatch:** If a section has no issues, say so and move on. If an issue has an obvious fix with no real alternatives, state what you'll do and move on — don't waste a question on it. Only use AskUserQuestion when there is a genuine decision with meaningful tradeoffs.
+## 찾은 각 이슈에 대해
+* **하나의 이슈 = 하나의 AskUserQuestion 호출.** 하나의 질문에 여러 이슈를 절대 결합하지 않습니다.
+* 파일과 줄 참조로 문제를 구체적으로 설명합니다.
+* "아무것도 안 하기"가 합리적인 경우를 포함하여 2-3개의 옵션을 제시합니다.
+* 각 옵션에 대해: 한 줄에 노력, 위험, 유지관리 부담.
+* **권고사항을 먼저.** 지시어로 말합니다: "B를 하세요. 이유:" — "옵션 B를 고려할 가치가 있을 수 있습니다"가 아닌. 의견을 제시합니다.
+* **추론을 위의 엔지니어링 선호도에 매핑합니다.** 권고사항을 특정 선호도에 연결하는 한 문장.
+* **AskUserQuestion 형식:** "우리는 [LETTER] 권고합니다: [한 줄 이유]"로 시작한 후 모든 옵션을 `A) ... B) ... C) ...`로 나열합니다. 이슈 번호 + 옵션 문자로 레이블 지정 (예: "3A", "3B").
+* **탈출구:** 섹션에 이슈가 없으면, 그렇게 말하고 계속 진행합니다. 이슈에 진정한 대안 없이 명확한 수정이 있으면, 할 것을 말하고 계속 진행합니다.
 
-## Required Outputs
+## 필수 출력
 
-### "NOT in scope" section
-List work considered and explicitly deferred, with one-line rationale each.
+### "범위 외" 섹션
+고려되었지만 명시적으로 연기된 작업 목록, 각각 한 줄 이유.
 
-### "What already exists" section
-List existing code/flows that partially solve sub-problems and whether the plan reuses them.
+### "이미 존재하는 것" 섹션
+하위 문제를 부분적으로 해결하는 기존 코드/흐름 목록과 계획이 이를 재사용하는지.
 
-### "Dream state delta" section
-Where this plan leaves us relative to the 12-month ideal.
+### "꿈의 상태 변화" 섹션
+이 계획이 우리를 12개월 이상에 비교하여 어디에 남기는지.
 
-### Error & Rescue Registry (from Section 2)
-Complete table of every method that can fail, every exception class, rescued status, rescue action, user impact.
+### 에러 및 Rescue 레지스트리 (섹션 2에서)
+실패할 수 있는 모든 메서드, 모든 예외 클래스, rescue 상태, rescue 액션, 사용자 영향의 완전한 테이블.
 
-### Failure Modes Registry
+### 실패 모드 레지스트리
 ```
-  CODEPATH | FAILURE MODE   | RESCUED? | TEST? | USER SEES?     | LOGGED?
-  ---------|----------------|----------|-------|----------------|--------
+  코드패스 | 실패 모드  | Rescue됨? | 테스트됨? | 사용자 봄?   | 로그됨?
+  ---------|------------|-----------|-----------|-------------|--------
 ```
-Any row with RESCUED=N, TEST=N, USER SEES=Silent → **CRITICAL GAP**.
+RESCUED=N, TEST=N, USER SEES=Silent인 모든 행 → **CRITICAL GAP**.
 
-### TODOS.md updates
-Present each potential TODO as its own individual AskUserQuestion. Never batch TODOs — one per question. Never silently skip this step. Follow the format in `.claude/skills/review/TODOS-format.md`.
+### TODOS.md 업데이트
+각 잠재적 TODO를 별도 AskUserQuestion으로 제시합니다. TODO를 절대 묶지 않습니다 — 질문당 하나. 이 단계를 절대 조용히 건너뛰지 않습니다.
 
-For each TODO, describe:
-* **What:** One-line description of the work.
-* **Why:** The concrete problem it solves or value it unlocks.
-* **Pros:** What you gain by doing this work.
-* **Cons:** Cost, complexity, or risks of doing it.
-* **Context:** Enough detail that someone picking this up in 3 months understands the motivation, the current state, and where to start.
-* **Effort estimate:** S/M/L/XL
-* **Priority:** P1/P2/P3
-* **Depends on / blocked by:** Any prerequisites or ordering constraints.
+각 TODO에 대해 설명:
+* **무엇:** 한 줄 작업 설명.
+* **왜:** 해결하는 구체적인 문제 또는 잠금 해제하는 가치.
+* **장점:** 이 작업을 수행하면 얻는 것.
+* **단점:** 수행 비용, 복잡성, 또는 위험.
+* **컨텍스트:** 3개월 후 이것을 선택하는 사람이 동기, 현재 상태, 어디서 시작할지를 이해하기 충분한 세부 사항.
+* **노력 추정:** S/M/L/XL
+* **우선순위:** P1/P2/P3
+* **의존 / 차단됨:** 전제 조건 또는 순서 제약.
 
-Then present options: **A)** Add to TODOS.md **B)** Skip — not valuable enough **C)** Build it now in this PR instead of deferring.
+그런 다음 옵션 제시: **A)** TODOS.md에 추가 **B)** 건너뜀 — 충분히 가치 있지 않음 **C)** 지금 이 PR에서 만들기.
 
-### Delight Opportunities (EXPANSION mode only)
-Identify at least 5 "bonus chunk" opportunities (<30 min each) that would make users think "oh nice, they thought of that." Present each delight opportunity as its own individual AskUserQuestion. Never batch them. For each one, describe what it is, why it would delight users, and effort estimate. Then present options: **A)** Add to TODOS.md as a vision item **B)** Skip **C)** Build it now in this PR.
+### 기쁨의 기회 (EXPANSION 모드만)
+사용자가 "오, 좋네, 그것까지 생각했군요"라고 생각할 5개 이상의 "보너스 청크" 기회(<30분 각각)를 식별합니다. 각 기쁨의 기회를 별도 AskUserQuestion으로 제시합니다. 절대 묶지 않습니다. 각각에 대해 무엇인지, 왜 사용자를 기쁘게 할 것인지, 노력 추정을 설명합니다. 그런 다음 옵션 제시: **A)** 비전 항목으로 TODOS.md에 추가 **B)** 건너뜀 **C)** 지금 이 PR에서 만들기.
 
-### Diagrams (mandatory, produce all that apply)
-1. System architecture
-2. Data flow (including shadow paths)
-3. State machine
-4. Error flow
-5. Deployment sequence
-6. Rollback flowchart
+### 다이어그램 (필수, 해당하는 모든 것 생성)
+1. 시스템 아키텍처
+2. 데이터 흐름 (섀도 경로 포함)
+3. 상태 기계
+4. 에러 흐름
+5. 배포 시퀀스
+6. 롤백 순서도
 
-### Stale Diagram Audit
-List every ASCII diagram in files this plan touches. Still accurate?
+### 오래된 다이어그램 감사
+이 계획이 터치하는 파일의 모든 ASCII 다이어그램 목록. 여전히 정확한가?
 
-### Completion Summary
+### 완료 요약
 ```
   +====================================================================+
-  |            MEGA PLAN REVIEW — COMPLETION SUMMARY                   |
+  |            메가 계획 검토 — 완료 요약                               |
   +====================================================================+
-  | Mode selected        | EXPANSION / HOLD / REDUCTION                |
-  | System Audit         | [key findings]                              |
-  | Step 0               | [mode + key decisions]                      |
-  | Section 1  (Arch)    | ___ issues found                            |
-  | Section 2  (Errors)  | ___ error paths mapped, ___ GAPS            |
-  | Section 3  (Security)| ___ issues found, ___ High severity         |
-  | Section 4  (Data/UX) | ___ edge cases mapped, ___ unhandled        |
-  | Section 5  (Quality) | ___ issues found                            |
-  | Section 6  (Tests)   | Diagram produced, ___ gaps                  |
-  | Section 7  (Perf)    | ___ issues found                            |
-  | Section 8  (Observ)  | ___ gaps found                              |
-  | Section 9  (Deploy)  | ___ risks flagged                           |
-  | Section 10 (Future)  | Reversibility: _/5, debt items: ___         |
+  | 선택된 모드          | EXPANSION / HOLD / REDUCTION                |
+  | 시스템 감사          | [주요 발견]                                  |
+  | Step 0               | [모드 + 주요 결정사항]                       |
+  | 섹션 1  (아키텍처)   | ___ 이슈 발견                               |
+  | 섹션 2  (에러)       | ___ 에러 경로 매핑, ___ 갭                  |
+  | 섹션 3  (보안)       | ___ 이슈 발견, ___ 높은 심각도              |
+  | 섹션 4  (데이터/UX)  | ___ 엣지 케이스 매핑, ___ 미처리             |
+  | 섹션 5  (품질)       | ___ 이슈 발견                               |
+  | 섹션 6  (테스트)     | 다이어그램 생성, ___ 갭                     |
+  | 섹션 7  (성능)       | ___ 이슈 발견                               |
+  | 섹션 8  (관찰성)     | ___ 갭 발견                                 |
+  | 섹션 9  (배포)       | ___ 위험 플래그됨                           |
+  | 섹션 10 (미래)       | 가역성: _/5, 부채 항목: ___                |
   +--------------------------------------------------------------------+
-  | NOT in scope         | written (___ items)                          |
-  | What already exists  | written                                     |
-  | Dream state delta    | written                                     |
-  | Error/rescue registry| ___ methods, ___ CRITICAL GAPS              |
-  | Failure modes        | ___ total, ___ CRITICAL GAPS                |
-  | TODOS.md updates     | ___ items proposed                          |
-  | Delight opportunities| ___ identified (EXPANSION only)             |
-  | Diagrams produced    | ___ (list types)                            |
-  | Stale diagrams found | ___                                         |
-  | Unresolved decisions | ___ (listed below)                          |
+  | 범위 외              | 작성됨 (___ 항목)                           |
+  | 이미 존재하는 것     | 작성됨                                      |
+  | 꿈의 상태 변화       | 작성됨                                      |
+  | 에러/rescue 레지스트리| ___ 메서드, ___ CRITICAL 갭                |
+  | 실패 모드            | ___ 총계, ___ CRITICAL 갭                  |
+  | TODOS.md 업데이트    | ___ 항목 제안됨                             |
+  | 기쁨의 기회          | ___ 식별됨 (EXPANSION만)                   |
+  | 생성된 다이어그램    | ___ (유형 목록)                             |
+  | 오래된 다이어그램    | ___                                         |
+  | 미해결 결정사항      | ___ (아래 나열됨)                           |
   +====================================================================+
 ```
 
-### Unresolved Decisions
-If any AskUserQuestion goes unanswered, note it here. Never silently default.
+### 미해결 결정사항
+AskUserQuestion이 응답받지 못하면 여기에 기록합니다. 조용히 기본값을 사용하지 않습니다.
 
-## Formatting Rules
-* NUMBER issues (1, 2, 3...) and LETTERS for options (A, B, C...).
-* Label with NUMBER + LETTER (e.g., "3A", "3B").
-* One sentence max per option.
-* After each section, pause and wait for feedback.
-* Use **CRITICAL GAP** / **WARNING** / **OK** for scannability.
+## 포맷 규칙
+* 이슈에 번호 매기기 (1, 2, 3...), 옵션에 문자 (A, B, C...).
+* 번호 + 문자로 레이블 지정 (예: "3A", "3B").
+* 권고 옵션을 항상 먼저 나열.
+* 옵션당 최대 한 문장.
+* 각 섹션 후 일시 중지하고 피드백 기다리기.
+* 스캔 가능성을 위해 **CRITICAL GAP** / **WARNING** / **OK** 사용.
 
-## Mode Quick Reference
+## 모드 빠른 참조
 ```
   ┌─────────────────────────────────────────────────────────────────┐
-  │                     MODE COMPARISON                             │
+  │                     모드 비교                                    │
   ├─────────────┬──────────────┬──────────────┬────────────────────┤
   │             │  EXPANSION   │  HOLD SCOPE  │  REDUCTION         │
   ├─────────────┼──────────────┼──────────────┼────────────────────┤
-  │ Scope       │ Push UP      │ Maintain     │ Push DOWN          │
-  │ 10x check   │ Mandatory    │ Optional     │ Skip               │
-  │ Platonic    │ Yes          │ No           │ No                 │
-  │ ideal       │              │              │                    │
-  │ Delight     │ 5+ items     │ Note if seen │ Skip               │
-  │ opps        │              │              │                    │
-  │ Complexity  │ "Is it big   │ "Is it too   │ "Is it the bare    │
-  │ question    │  enough?"    │  complex?"   │  minimum?"         │
-  │ Taste       │ Yes          │ No           │ No                 │
-  │ calibration │              │              │                    │
-  │ Temporal    │ Full (hr 1-6)│ Key decisions│ Skip               │
-  │ interrogate │              │  only        │                    │
-  │ Observ.     │ "Joy to      │ "Can we      │ "Can we see if     │
-  │ standard    │  operate"    │  debug it?"  │  it's broken?"     │
-  │ Deploy      │ Infra as     │ Safe deploy  │ Simplest possible  │
-  │ standard    │ feature scope│  + rollback  │  deploy            │
-  │ Error map   │ Full + chaos │ Full         │ Critical paths     │
-  │             │  scenarios   │              │  only              │
-  │ Phase 2/3   │ Map it       │ Note it      │ Skip               │
-  │ planning    │              │              │                    │
+  │ 범위        │ 높이기        │ 유지          │ 낮추기             │
+  │ 10x 확인   │ 필수          │ 선택          │ 건너뜀             │
+  │ 플라톤적    │ 예            │ 아니오        │ 아니오             │
+  │ 이상        │              │              │                    │
+  │ 기쁨의      │ 5개+ 항목     │ 보이면 메모   │ 건너뜀             │
+  │ 기회        │              │              │                    │
+  │ 복잡성      │ "충분히       │ "너무         │ "최소한인가?"      │
+  │ 질문        │  큰가?"      │  복잡한가?"  │                    │
+  │ 취향        │ 예            │ 아니오        │ 아니오             │
+  │ 보정        │              │              │                    │
+  │ 시간적      │ 전체(1-6시간) │ 주요 결정     │ 건너뜀             │
+  │ 심문        │              │  만           │                    │
+  │ 관찰성      │ "운영하는 것이│ "디버깅       │ "고장났는지        │
+  │ 기준        │  즐거운가"   │  가능한가"   │  볼 수 있나"       │
+  │ 배포        │ 기능 범위로서 │ 안전 배포     │ 가능한 가장        │
+  │ 기준        │ 인프라        │  + 롤백       │  단순한 배포       │
+  │ 에러 맵     │ 전체 + 카오스 │ 전체          │ 중요 경로만        │
+  │             │  시나리오     │              │                    │
+  │ Phase 2/3  │ 매핑          │ 메모          │ 건너뜀             │
+  │ 계획        │              │              │                    │
   └─────────────┴──────────────┴──────────────┴────────────────────┘
 ```

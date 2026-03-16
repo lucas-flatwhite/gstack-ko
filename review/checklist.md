@@ -1,132 +1,125 @@
-# Pre-Landing Review Checklist
+# 랜딩 전 검토 체크리스트
 
-## Instructions
+## 지침
 
-Review the `git diff origin/main` output for the issues listed below. Be specific — cite `file:line` and suggest fixes. Skip anything that's fine. Only flag real problems.
+아래 나열된 이슈를 위해 `git diff origin/main` 출력을 검토합니다. 구체적으로 — `file:line`을 인용하고 수정을 제안합니다. 괜찮은 것은 건너뜁니다. 실제 문제만 플래그합니다.
 
-**Two-pass review:**
-- **Pass 1 (CRITICAL):** Run SQL & Data Safety and LLM Output Trust Boundary first. These can block `/ship`.
-- **Pass 2 (INFORMATIONAL):** Run all remaining categories. These are included in the PR body but do not block.
+**두 단계 검토:**
+- **Pass 1 (CRITICAL):** SQL 및 데이터 안전성과 LLM 출력 신뢰 경계를 먼저 실행합니다. 이것들이 `/ship`을 차단할 수 있습니다.
+- **Pass 2 (INFORMATIONAL):** 나머지 모든 카테고리를 실행합니다. 이것들은 PR 본문에 포함되지만 차단하지 않습니다.
 
-**Output format:**
+**출력 형식:**
 
 ```
-Pre-Landing Review: N issues (X critical, Y informational)
+랜딩 전 검토: N개 이슈 (X개 critical, Y개 informational)
 
-**CRITICAL** (blocking /ship):
-- [file:line] Problem description
-  Fix: suggested fix
+**CRITICAL** (/ship 차단):
+- [file:line] 문제 설명
+  수정: 제안된 수정
 
-**Issues** (non-blocking):
-- [file:line] Problem description
-  Fix: suggested fix
+**이슈** (비차단):
+- [file:line] 문제 설명
+  수정: 제안된 수정
 ```
 
-If no issues found: `Pre-Landing Review: No issues found.`
+이슈가 없으면: `랜딩 전 검토: 이슈가 발견되지 않았습니다.`
 
-Be terse. For each issue: one line describing the problem, one line with the fix. No preamble, no summaries, no "looks good overall."
+간결하게. 각 이슈에 대해: 문제를 설명하는 한 줄, 수정을 위한 한 줄. 서두 없음, 요약 없음, "전반적으로 좋아 보입니다" 없음.
 
 ---
 
-## Review Categories
+## 검토 카테고리
 
 ### Pass 1 — CRITICAL
 
-#### SQL & Data Safety
-- String interpolation in SQL (even if values are `.to_i`/`.to_f` — use `sanitize_sql_array` or Arel)
-- TOCTOU races: check-then-set patterns that should be atomic `WHERE` + `update_all`
-- `update_column`/`update_columns` bypassing validations on fields that have or should have constraints
-- N+1 queries: `.includes()` missing for associations used in loops/views (especially avatar, attachments)
+#### SQL 및 데이터 안전성
+- SQL에서의 문자열 보간 (값이 `.to_i`/`.to_f`여도 — `sanitize_sql_array` 또는 Arel 사용)
+- TOCTOU 경쟁 조건: 원자적 `WHERE` + `update_all`이어야 하는 체크-후-설정 패턴
+- 제약 조건이 있거나 있어야 하는 필드에서 검증을 우회하는 `update_column`/`update_columns`
+- N+1 쿼리: 루프/뷰에서 사용되는 연관관계에 `.includes()`가 없음 (특히 avatar, attachments)
 
-#### Race Conditions & Concurrency
-- Read-check-write without uniqueness constraint or `rescue RecordNotUnique; retry` (e.g., `where(hash:).first` then `save!` without handling concurrent insert)
-- `find_or_create_by` on columns without unique DB index — concurrent calls can create duplicates
-- Status transitions that don't use atomic `WHERE old_status = ? UPDATE SET new_status` — concurrent updates can skip or double-apply transitions
-- `html_safe` on user-controlled data (XSS) — check any `.html_safe`, `raw()`, or string interpolation into `html_safe` output
+#### 경쟁 조건 및 동시성
+- 유니크 제약 조건 또는 `rescue RecordNotUnique; retry` 없이 읽기-확인-쓰기 (예: `where(hash:).first` 후 동시 삽입을 처리하지 않고 `save!`)
+- 유니크 DB 인덱스 없는 컬럼에서의 `find_or_create_by` — 동시 호출이 중복을 만들 수 있음
+- 원자적 `WHERE old_status = ? UPDATE SET new_status`를 사용하지 않는 상태 전환 — 동시 업데이트가 전환을 건너뛰거나 이중 적용할 수 있음
+- 사용자 제어 데이터에서의 `html_safe` (XSS) — `.html_safe`, `raw()`, 또는 `html_safe` 출력으로의 문자열 보간 확인
 
-#### LLM Output Trust Boundary
-- LLM-generated values (emails, URLs, names) written to DB or passed to mailers without format validation. Add lightweight guards (`EMAIL_REGEXP`, `URI.parse`, `.strip`) before persisting.
-- Structured tool output (arrays, hashes) accepted without type/shape checks before database writes.
-
-#### Enum & Value Completeness
-When the diff introduces a new enum value, status string, tier name, or type constant:
-- **Trace it through every consumer.** Read (don't just grep — READ) each file that switches on, filters by, or displays that value. If any consumer doesn't handle the new value, flag it. Common miss: adding a value to the frontend dropdown but the backend model/compute method doesn't persist it.
-- **Check allowlists/filter arrays.** Search for arrays or `%w[]` lists containing sibling values (e.g., if adding "revise" to tiers, find every `%w[quick lfg mega]` and verify "revise" is included where needed).
-- **Check `case`/`if-elsif` chains.** If existing code branches on the enum, does the new value fall through to a wrong default?
-To do this: use Grep to find all references to the sibling values (e.g., grep for "lfg" or "mega" to find all tier consumers). Read each match. This step requires reading code OUTSIDE the diff.
+#### LLM 출력 신뢰 경계
+- 형식 검증 없이 DB에 기록되거나 mailer에 전달되는 LLM 생성 값 (이메일, URL, 이름). 지속하기 전에 경량 가드 추가 (`EMAIL_REGEXP`, `URI.parse`, `.strip`).
+- DB 쓰기 전에 유형/형태 확인 없이 수용되는 구조화된 도구 출력 (배열, 해시).
 
 ### Pass 2 — INFORMATIONAL
 
-#### Conditional Side Effects
-- Code paths that branch on a condition but forget to apply a side effect on one branch. Example: item promoted to verified but URL only attached when a secondary condition is true — the other branch promotes without the URL, creating an inconsistent record.
-- Log messages that claim an action happened but the action was conditionally skipped. The log should reflect what actually occurred.
+#### 조건부 사이드 이펙트
+- 조건에 분기하지만 한 브랜치에서 사이드 이펙트 적용을 잊은 코드 경로. 예시: 항목이 verified로 승격되지만 URL은 보조 조건이 true일 때만 첨부 — 다른 브랜치는 URL 없이 승격하여 일관되지 않은 레코드를 만듦.
+- 액션이 발생했다고 주장하는 로그 메시지지만 액션이 조건부로 건너뛰어짐. 로그는 실제 발생한 것을 반영해야 함.
 
-#### Magic Numbers & String Coupling
-- Bare numeric literals used in multiple files — should be named constants documented together
-- Error message strings used as query filters elsewhere (grep for the string — is anything matching on it?)
+#### 매직 넘버 및 문자열 결합
+- 여러 파일에서 사용되는 숫자 리터럴 — 함께 문서화된 명명된 상수여야 함
+- 다른 곳에서 쿼리 필터로 사용되는 에러 메시지 문자열 (문자열로 grep — 어떤 것이 이것과 매치하나?)
 
-#### Dead Code & Consistency
-- Variables assigned but never read
-- Version mismatch between PR title and VERSION/CHANGELOG files
-- CHANGELOG entries that describe changes inaccurately (e.g., "changed from X to Y" when X never existed)
-- Comments/docstrings that describe old behavior after the code changed
+#### 데드 코드 및 일관성
+- 할당되었지만 읽히지 않는 변수
+- PR 제목과 VERSION/CHANGELOG 파일 간 버전 불일치
+- 부정확하게 변경사항을 설명하는 CHANGELOG 항목 (예: "X에서 Y로 변경됨" 그러나 X는 존재한 적 없음)
+- 코드 변경 후 이전 동작을 설명하는 주석/docstring
 
-#### LLM Prompt Issues
-- 0-indexed lists in prompts (LLMs reliably return 1-indexed)
-- Prompt text listing available tools/capabilities that don't match what's actually wired up in the `tool_classes`/`tools` array
-- Word/token limits stated in multiple places that could drift
+#### LLM 프롬프트 이슈
+- 프롬프트에서의 0인덱스 목록 (LLM은 안정적으로 1인덱스로 반환)
+- `tool_classes`/`tools` 배열에 실제로 연결된 것과 일치하지 않는 사용 가능한 도구/기능을 나열하는 프롬프트 텍스트
+- 표류할 수 있는 여러 곳에 명시된 단어/토큰 제한
 
-#### Test Gaps
-- Negative-path tests that assert type/status but not the side effects (URL attached? field populated? callback fired?)
-- Assertions on string content without checking format (e.g., asserting title present but not URL format)
-- `.expects(:something).never` missing when a code path should explicitly NOT call an external service
-- Security enforcement features (blocking, rate limiting, auth) without integration tests verifying the enforcement path works end-to-end
+#### 테스트 갭
+- 유형/상태를 어서트하지만 사이드 이펙트는 어서트하지 않는 부정 경로 테스트 (URL 첨부됨? 필드 채워짐? 콜백 호출됨?)
+- 형식을 확인하지 않고 문자열 콘텐츠를 어서트하는 어서션 (예: 제목 존재를 어서트하지만 URL 형식은 어서트하지 않음)
+- 코드 경로가 명시적으로 외부 서비스를 호출하지 않아야 할 때 누락된 `.expects(:something).never`
+- 강제 기능 (차단, 속도 제한, 인증)이 강제 경로가 종단간 작동하는지 검증하는 통합 테스트 없음
 
-#### Crypto & Entropy
-- Truncation of data instead of hashing (last N chars instead of SHA-256) — less entropy, easier collisions
-- `rand()` / `Random.rand` for security-sensitive values — use `SecureRandom` instead
-- Non-constant-time comparisons (`==`) on secrets or tokens — vulnerable to timing attacks
+#### 암호화 및 엔트로피
+- 해싱 대신 데이터 자르기 (SHA-256 대신 마지막 N자) — 낮은 엔트로피, 더 쉬운 충돌
+- 보안에 민감한 값에 `rand()` / `Random.rand` — 대신 `SecureRandom` 사용
+- 시크릿 또는 토큰에서 비상수 시간 비교 (`==`) — 타이밍 공격에 취약
 
-#### Time Window Safety
-- Date-key lookups that assume "today" covers 24h — report at 8am PT only sees midnight→8am under today's key
-- Mismatched time windows between related features — one uses hourly buckets, another uses daily keys for the same data
+#### 시간 기간 안전성
+- "오늘"이 24시간을 커버한다고 가정하는 날짜 키 조회 — 오전 8시 PT 리포트는 오늘 키 아래서 자정→오전 8시만 봄
+- 관련 기능 간 일치하지 않는 시간 기간 — 하나는 시간별 버킷, 다른 하나는 같은 데이터에 일별 키 사용
 
-#### Type Coercion at Boundaries
-- Values crossing Ruby→JSON→JS boundaries where type could change (numeric vs string) — hash/digest inputs must normalize types
-- Hash/digest inputs that don't call `.to_s` or equivalent before serialization — `{ cores: 8 }` vs `{ cores: "8" }` produce different hashes
+#### 경계에서의 타입 강제
+- Ruby→JSON→JS 경계를 넘는 값에서 타입이 변경될 수 있음 (숫자 vs 문자열) — 해시/다이제스트 입력은 타입을 정규화해야 함
+- 직렬화 전에 `.to_s` 또는 동등한 것을 호출하지 않는 해시/다이제스트 입력 — `{ cores: 8 }`과 `{ cores: "8" }`은 다른 해시를 생성함
 
 #### View/Frontend
-- Inline `<style>` blocks in partials (re-parsed every render)
-- O(n*m) lookups in views (`Array#find` in a loop instead of `index_by` hash)
-- Ruby-side `.select{}` filtering on DB results that could be a `WHERE` clause (unless intentionally avoiding leading-wildcard `LIKE`)
+- 파셜에서의 인라인 `<style>` 블록 (매 렌더링마다 재파싱됨)
+- 뷰에서의 O(n*m) 조회 (루프에서 `Array#find` 대신 `index_by` 해시)
+- DB 결과에서의 Ruby 사이드 `.select{}` 필터링 (선행 와일드카드 `LIKE`를 의도적으로 피하는 경우가 아니면 `WHERE` 절이 될 수 있음)
 
 ---
 
-## Gate Classification
+## 게이트 분류
 
 ```
-CRITICAL (blocks /ship):          INFORMATIONAL (in PR body):
-├─ SQL & Data Safety              ├─ Conditional Side Effects
-├─ Race Conditions & Concurrency  ├─ Magic Numbers & String Coupling
-├─ LLM Output Trust Boundary      ├─ Dead Code & Consistency
-└─ Enum & Value Completeness      ├─ LLM Prompt Issues
-                                   ├─ Test Gaps
-                                   ├─ Crypto & Entropy
-                                   ├─ Time Window Safety
-                                   ├─ Type Coercion at Boundaries
-                                   └─ View/Frontend
+CRITICAL (/ship 차단):          INFORMATIONAL (PR 본문에):
+├─ SQL 및 데이터 안전성           ├─ 조건부 사이드 이펙트
+├─ 경쟁 조건 및 동시성            ├─ 매직 넘버 및 문자열 결합
+└─ LLM 출력 신뢰 경계             ├─ 데드 코드 및 일관성
+                                  ├─ LLM 프롬프트 이슈
+                                  ├─ 테스트 갭
+                                  ├─ 암호화 및 엔트로피
+                                  ├─ 시간 기간 안전성
+                                  ├─ 경계에서의 타입 강제
+                                  └─ View/Frontend
 ```
 
 ---
 
-## Suppressions — DO NOT flag these
+## 억제 — 이것들은 플래그하지 않습니다
 
-- "X is redundant with Y" when the redundancy is harmless and aids readability (e.g., `present?` redundant with `length > 20`)
-- "Add a comment explaining why this threshold/constant was chosen" — thresholds change during tuning, comments rot
-- "This assertion could be tighter" when the assertion already covers the behavior
-- Suggesting consistency-only changes (wrapping a value in a conditional to match how another constant is guarded)
-- "Regex doesn't handle edge case X" when the input is constrained and X never occurs in practice
-- "Test exercises multiple guards simultaneously" — that's fine, tests don't need to isolate every guard
-- Eval threshold changes (max_actionable, min scores) — these are tuned empirically and change constantly
-- Harmless no-ops (e.g., `.reject` on an element that's never in the array)
-- ANYTHING already addressed in the diff you're reviewing — read the FULL diff before commenting
+- "X는 Y와 중복됩니다" — 중복이 무해하고 가독성을 높이는 경우 (예: `present?`가 `length > 20`과 중복)
+- "이 임계값/상수가 왜 선택됐는지 설명하는 주석 추가" — 임계값은 조정 중 변경되고 주석은 낡음
+- "이 어서션이 더 엄격할 수 있습니다" — 어서션이 이미 동작을 커버하는 경우
+- 일관성만을 위한 변경 제안 (값을 다른 상수가 가드되는 방식과 일치시키도록 조건으로 감싸기)
+- "정규식이 엣지 케이스 X를 처리하지 않습니다" — 입력이 제한되고 X가 실제로 발생하지 않는 경우
+- "테스트가 여러 가드를 동시에 실행합니다" — 괜찮습니다, 테스트가 모든 가드를 격리할 필요는 없음
+- Eval 임계값 변경 (max_actionable, min scores) — 이것들은 경험적으로 조정되고 자주 변경됨
+- 무해한 no-op (예: 배열에 절대 없는 요소에 대한 `.reject`)
+- **검토 중인 diff에서 이미 해결된 모든 것 — 코멘트 전에 전체 diff를 읽습니다**

@@ -1,290 +1,251 @@
-# Contributing to gstack
+# gstack 기여 가이드
 
-Thanks for wanting to make gstack better. Whether you're fixing a typo in a skill prompt or building an entirely new workflow, this guide will get you up and running fast.
+gstack를 더 좋게 만들고 싶어 해주셔서 감사합니다. 스킬 프롬프트 오타 수정부터 완전히 새로운 워크플로우 구축까지, 이 문서로 빠르게 개발을 시작할 수 있습니다.
 
-## Quick start
+## 빠른 시작
 
-gstack skills are Markdown files that Claude Code discovers from a `skills/` directory. Normally they live at `~/.claude/skills/gstack/` (your global install). But when you're developing gstack itself, you want Claude Code to use the skills *in your working tree* — so edits take effect instantly without copying or deploying anything.
+gstack 스킬은 Claude Code가 `skills/` 디렉토리에서 발견하는 Markdown 파일입니다. 보통은 `~/.claude/skills/gstack/`(글로벌 설치)에 위치합니다. 하지만 gstack 자체를 개발할 때는 작업 트리의 스킬을 Claude Code가 바로 읽어야 복사/배포 없이 수정 사항이 즉시 반영됩니다.
 
-That's what dev mode does. It symlinks your repo into the local `.claude/skills/` directory so Claude Code reads skills straight from your checkout.
+이 역할을 dev mode가 수행합니다. 저장소를 로컬 `.claude/skills/`에 심링크해 Claude Code가 체크아웃된 소스를 직접 읽도록 만듭니다.
 
 ```bash
 git clone <repo> && cd gstack
-bun install                    # install dependencies
-bin/dev-setup                  # activate dev mode
+bun install                    # 의존성 설치
+bin/dev-setup                  # dev mode 활성화
 ```
 
-Now edit any `SKILL.md`, invoke it in Claude Code (e.g. `/review`), and see your changes live. When you're done developing:
+이제 `SKILL.md`를 수정하고 Claude Code에서 스킬(예: `/review`)을 호출하면 변경이 바로 반영됩니다. 개발을 마치면:
 
 ```bash
-bin/dev-teardown               # deactivate — back to your global install
+bin/dev-teardown               # 비활성화 — 글로벌 설치로 복귀
 ```
 
-## Contributor mode
+## dev mode 동작 방식
 
-Contributor mode is for people who want to fix gstack when it annoys them. Enable it
-and Claude Code will automatically log issues to `~/.gstack/contributor-logs/` as you
-work — what you were doing, what went wrong, repro steps, raw output.
-
-```bash
-~/.claude/skills/gstack/bin/gstack-config set gstack_contributor true
-```
-
-The logs are for **you**. When something bugs you enough to fix, the report is
-already written. Fork gstack, symlink your fork into the project where you hit
-the issue, fix it, and open a PR.
-
-### The contributor workflow
-
-1. **Hit friction while using gstack** — contributor mode logs it automatically
-2. **Check your logs:** `ls ~/.gstack/contributor-logs/`
-3. **Fork and clone gstack** (if you haven't already)
-4. **Symlink your fork into the project where you hit the bug:**
-   ```bash
-   # In your core project (the one where gstack annoyed you)
-   ln -sfn /path/to/your/gstack-fork .claude/skills/gstack
-   cd .claude/skills/gstack && bun install && bun run build
-   ```
-5. **Fix the issue** — your changes are live immediately in this project
-6. **Test by actually using gstack** — do the thing that annoyed you, verify it's fixed
-7. **Open a PR from your fork**
-
-This is the best way to contribute: fix gstack while doing your real work, in the
-project where you actually felt the pain.
-
-## Working on gstack inside the gstack repo
-
-When you're editing gstack skills and want to test them by actually using gstack
-in the same repo, `bin/dev-setup` wires this up. It creates `.claude/skills/`
-symlinks (gitignored) pointing back to your working tree, so Claude Code uses
-your local edits instead of the global install.
+`bin/dev-setup`은 저장소 내부(깃 무시됨)에 `.claude/skills/` 디렉토리를 만들고, 작업 트리를 가리키는 심링크를 채웁니다. Claude Code는 로컬 `skills/`를 먼저 보기 때문에 글로벌 설치보다 현재 수정본이 우선됩니다.
 
 ```
-gstack/                          <- your working tree
-├── .claude/skills/              <- created by dev-setup (gitignored)
-│   ├── gstack -> ../../         <- symlink back to repo root
+gstack/                          <- 작업 트리
+├── .claude/skills/              <- dev-setup이 생성 (gitignored)
+│   ├── gstack -> ../../         <- 저장소 루트로 되돌아가는 심링크
 │   ├── review -> gstack/review
 │   ├── ship -> gstack/ship
-│   └── ...                      <- one symlink per skill
+│   └── ...                      <- 스킬당 하나씩 심링크
 ├── review/
-│   └── SKILL.md                 <- edit this, test with /review
+│   └── SKILL.md                 <- 여기 수정 후 /review로 테스트
 ├── ship/
 │   └── SKILL.md
 ├── browse/
-│   ├── src/                     <- TypeScript source
-│   └── dist/                    <- compiled binary (gitignored)
+│   ├── src/                     <- TypeScript 소스
+│   └── dist/                    <- 컴파일된 바이너리 (gitignored)
 └── ...
 ```
 
-## Day-to-day workflow
+## 일상 워크플로우
 
 ```bash
-# 1. Enter dev mode
+# 1. dev mode 진입
 bin/dev-setup
 
-# 2. Edit a skill
+# 2. 스킬 수정
 vim review/SKILL.md
 
-# 3. Test it in Claude Code — changes are live
+# 3. Claude Code에서 테스트 — 변경 즉시 반영
 #    > /review
 
-# 4. Editing browse source? Rebuild the binary
+# 4. browse 소스를 수정했다면 바이너리 재빌드
 bun run build
 
-# 5. Done for the day? Tear down
+# 5. 작업 종료 시 정리
 bin/dev-teardown
 ```
 
-## Testing & evals
+## 테스트 및 eval
 
-### Setup
+### 설정
 
 ```bash
-# 1. Copy .env.example and add your API key
+# 1. .env.example 복사 후 API 키 설정
 cp .env.example .env
-# Edit .env → set ANTHROPIC_API_KEY=sk-ant-...
+# .env 편집 → ANTHROPIC_API_KEY=sk-ant-...
 
-# 2. Install deps (if you haven't already)
+# 2. 의존성 설치(미설치 시)
 bun install
 ```
 
-Bun auto-loads `.env` — no extra config. Conductor workspaces inherit `.env` from the main worktree automatically (see "Conductor workspaces" below).
+Bun은 `.env`를 자동 로드하므로 추가 설정이 필요 없습니다. Conductor 워크스페이스도 메인 워크트리의 `.env`를 자동 상속합니다(아래 "Conductor 워크스페이스" 참조).
 
-### Test tiers
+### 테스트 티어
 
-| Tier | Command | Cost | What it tests |
-|------|---------|------|---------------|
-| 1 — Static | `bun test` | Free | Command validation, snapshot flags, SKILL.md correctness, TODOS-format.md refs, observability unit tests |
-| 2 — E2E | `bun run test:e2e` | ~$3.85 | Full skill execution via `claude -p` subprocess |
-| 3 — LLM eval | `bun run test:evals` | ~$0.15 standalone | LLM-as-judge scoring of generated SKILL.md docs |
-| 2+3 | `bun run test:evals` | ~$4 combined | E2E + LLM-as-judge (runs both) |
-
-```bash
-bun test                     # Tier 1 only (runs on every commit, <5s)
-bun run test:e2e             # Tier 2: E2E only (needs EVALS=1, can't run inside Claude Code)
-bun run test:evals           # Tier 2 + 3 combined (~$4/run)
-```
-
-### Tier 1: Static validation (free)
-
-Runs automatically with `bun test`. No API keys needed.
-
-- **Skill parser tests** (`test/skill-parser.test.ts`) — Extracts every `$B` command from SKILL.md bash code blocks and validates against the command registry in `browse/src/commands.ts`. Catches typos, removed commands, and invalid snapshot flags.
-- **Skill validation tests** (`test/skill-validation.test.ts`) — Validates that SKILL.md files reference only real commands and flags, and that command descriptions meet quality thresholds.
-- **Generator tests** (`test/gen-skill-docs.test.ts`) — Tests the template system: verifies placeholders resolve correctly, output includes value hints for flags (e.g. `-d <N>` not just `-d`), enriched descriptions for key commands (e.g. `is` lists valid states, `press` lists key examples).
-
-### Tier 2: E2E via `claude -p` (~$3.85/run)
-
-Spawns `claude -p` as a subprocess with `--output-format stream-json --verbose`, streams NDJSON for real-time progress, and scans for browse errors. This is the closest thing to "does this skill actually work end-to-end?"
+| Tier | Command | Cost | 테스트 대상 |
+|------|---------|------|-------------|
+| 1 — Static | `bun test` | 무료 | 커맨드 검증, snapshot 플래그, SKILL.md 정합성 |
+| 2 — E2E | `bun run test:e2e` | 약 $0.50 | Agent SDK 기반 스킬 전체 실행 |
+| 3 — LLM eval | `bun run test:eval` | 약 $0.03 | LLM-as-judge 문서 품질 평가 |
 
 ```bash
-# Must run from a plain terminal — can't nest inside Claude Code or Conductor
-EVALS=1 bun test test/skill-e2e.test.ts
+bun test                     # Tier 1 전용 (커밋마다 실행, <5초)
+bun run test:eval            # Tier 3: LLM-as-judge (.env의 ANTHROPIC_API_KEY 필요)
+bun run test:e2e             # Tier 2: E2E (SKILL_E2E=1 필요, Claude Code 내부 실행 불가)
+bun run test:all             # Tier 1 + Tier 2
 ```
 
-- Gated by `EVALS=1` env var (prevents accidental expensive runs)
-- Auto-skips if running inside Claude Code (`claude -p` can't nest)
-- API connectivity pre-check — fails fast on ConnectionRefused before burning budget
-- Real-time progress to stderr: `[Ns] turn T tool #C: Name(...)`
-- Saves full NDJSON transcripts and failure JSON for debugging
-- Tests live in `test/skill-e2e.test.ts`, runner logic in `test/helpers/session-runner.ts`
+### Tier 1: 정적 검증(무료)
 
-### E2E observability
+`bun test`로 자동 실행됩니다. API 키가 필요 없습니다.
 
-When E2E tests run, they produce machine-readable artifacts in `~/.gstack-dev/`:
+- **스킬 파서 테스트** (`test/skill-parser.test.ts`)  
+  SKILL.md bash 코드 블록에서 모든 `$B` 커맨드를 추출해 `browse/src/commands.ts` 레지스트리와 대조합니다. 오타, 제거된 커맨드, 잘못된 snapshot 플래그를 잡아냅니다.
+- **스킬 검증 테스트** (`test/skill-validation.test.ts`)  
+  SKILL.md가 실제 존재하는 커맨드/플래그만 참조하는지, 설명 품질 기준을 만족하는지 검증합니다.
+- **생성기 테스트** (`test/gen-skill-docs.test.ts`)  
+  템플릿 시스템을 검증합니다. 플레이스홀더 해석, 플래그 값 힌트 포함 여부(예: `-d`가 아니라 `-d <N>`), 핵심 커맨드 설명 보강(`is`의 유효 상태, `press`의 키 예시)을 확인합니다.
 
-| Artifact | Path | Purpose |
-|----------|------|---------|
-| Heartbeat | `e2e-live.json` | Current test status (updated per tool call) |
-| Partial results | `evals/_partial-e2e.json` | Completed tests (survives kills) |
-| Progress log | `e2e-runs/{runId}/progress.log` | Append-only text log |
-| NDJSON transcripts | `e2e-runs/{runId}/{test}.ndjson` | Raw `claude -p` output per test |
-| Failure JSON | `e2e-runs/{runId}/{test}-failure.json` | Diagnostic data on failure |
+### Tier 2: Agent SDK E2E (약 $0.50/회)
 
-**Live dashboard:** Run `bun run eval:watch` in a second terminal to see a live dashboard showing completed tests, the currently running test, and cost. Use `--tail` to also show the last 10 lines of progress.log.
-
-**Eval history tools:**
+실제 Claude Code 세션을 띄워 `/qa` 또는 `/browse`를 실행하고 tool 결과에서 오류를 탐지합니다. "정말 end-to-end로 동작하는가"에 가장 가까운 테스트입니다.
 
 ```bash
-bun run eval:list            # list all eval runs (turns, duration, cost per run)
-bun run eval:compare         # compare two runs — shows per-test deltas + Takeaway commentary
-bun run eval:summary         # aggregate stats + per-test efficiency averages across runs
+# 일반 터미널에서 실행해야 함 — Claude Code/Conductor 내부 중첩 실행 불가
+SKILL_E2E=1 bun test test/skill-e2e.test.ts
 ```
 
-**Eval comparison commentary:** `eval:compare` generates natural-language Takeaway sections interpreting what changed between runs — flagging regressions, noting improvements, calling out efficiency gains (fewer turns, faster, cheaper), and producing an overall summary. This is driven by `generateCommentary()` in `eval-store.ts`.
+- `SKILL_E2E=1` 환경변수로 게이트(고비용 실행 실수 방지)
+- Claude Code 내부 실행이 감지되면 자동 skip(Agent SDK 중첩 불가)
+- 실패 시 디버깅용 전체 대화 로그 저장
+- 테스트: `test/skill-e2e.test.ts`, 러너 로직: `test/helpers/session-runner.ts`
 
-Artifacts are never cleaned up — they accumulate in `~/.gstack-dev/` for post-mortem debugging and trend analysis.
+### Tier 3: LLM-as-judge (약 $0.03/회)
 
-### Tier 3: LLM-as-judge (~$0.15/run)
+생성된 SKILL.md 문서를 Claude Haiku로 3가지 관점에서 평가합니다:
 
-Uses Claude Sonnet to score generated SKILL.md docs on three dimensions:
+- **Clarity** — 모호함 없이 지침을 이해할 수 있는가
+- **Completeness** — 커맨드/플래그/사용 패턴이 충분히 문서화됐는가
+- **Actionability** — 문서 정보만으로 작업 수행이 가능한가
 
-- **Clarity** — Can an AI agent understand the instructions without ambiguity?
-- **Completeness** — Are all commands, flags, and usage patterns documented?
-- **Actionability** — Can the agent execute tasks using only the information in the doc?
-
-Each dimension is scored 1-5. Threshold: every dimension must score **≥ 4**. There's also a regression test that compares generated docs against the hand-maintained baseline from `origin/main` — generated must score equal or higher.
+각 항목 1-5점, 통과 기준은 **모든 항목 4점 이상**입니다. 또한 `origin/main`의 수기 기준 문서와 비교해 생성 문서 점수가 같거나 더 높아야 하는 회귀 테스트도 포함됩니다.
 
 ```bash
-# Needs ANTHROPIC_API_KEY in .env — included in bun run test:evals
+# .env에 ANTHROPIC_API_KEY 필요
+bun run test:eval
 ```
 
-- Uses `claude-sonnet-4-6` for scoring stability
-- Tests live in `test/skill-llm-eval.test.ts`
-- Calls the Anthropic API directly (not `claude -p`), so it works from anywhere including inside Claude Code
+- 비용 효율을 위해 `claude-haiku-4-5` 사용
+- 테스트 위치: `test/skill-llm-eval.test.ts`
+- Agent SDK가 아닌 Anthropic API 직접 호출이므로 Claude Code 내부 포함 어디서나 실행 가능
 
 ### CI
 
-A GitHub Action (`.github/workflows/skill-docs.yml`) runs `bun run gen:skill-docs --dry-run` on every push and PR. If the generated SKILL.md files differ from what's committed, CI fails. This catches stale docs before they merge.
+GitHub Action(`.github/workflows/skill-docs.yml`)이 모든 push/PR에서 `bun run gen:skill-docs --dry-run`을 실행합니다. 생성된 SKILL.md가 커밋본과 다르면 CI가 실패합니다. 병합 전에 문서 드리프트를 차단합니다.
 
-Tests run against the browse binary directly — they don't require dev mode.
+테스트는 browse 바이너리를 직접 대상으로 하므로 dev mode가 필수는 아닙니다.
 
-## Editing SKILL.md files
+## SKILL.md 편집
 
-SKILL.md files are **generated** from `.tmpl` templates. Don't edit the `.md` directly — your changes will be overwritten on the next build.
+SKILL.md는 `.tmpl` 템플릿에서 **생성**됩니다. `.md`를 직접 수정하면 다음 빌드에서 덮어써집니다.
 
 ```bash
-# 1. Edit the template
-vim SKILL.md.tmpl              # or browse/SKILL.md.tmpl
+# 1. 템플릿 수정
+vim SKILL.md.tmpl              # 또는 browse/SKILL.md.tmpl
 
-# 2. Regenerate
+# 2. 재생성
 bun run gen:skill-docs
 
-# 3. Check health
+# 3. 헬스 확인
 bun run skill:check
 
-# Or use watch mode — auto-regenerates on save
+# 또는 watch 모드 사용 — 저장 시 자동 재생성
 bun run dev:skill
 ```
 
-To add a browse command, add it to `browse/src/commands.ts`. To add a snapshot flag, add it to `SNAPSHOT_FLAGS` in `browse/src/snapshot.ts`. Then rebuild.
+browse 커맨드를 추가하려면 `browse/src/commands.ts`를 수정하세요. snapshot 플래그를 추가하려면 `browse/src/snapshot.ts`의 `SNAPSHOT_FLAGS`를 수정한 뒤 재빌드합니다.
 
-## Conductor workspaces
+## Conductor 워크스페이스
 
-If you're using [Conductor](https://conductor.build) to run multiple Claude Code sessions in parallel, `conductor.json` wires up workspace lifecycle automatically:
+[Conductor](https://conductor.build)로 여러 Claude Code 세션을 병렬 실행할 때, `conductor.json`이 워크스페이스 라이프사이클을 자동 연결합니다.
 
-| Hook | Script | What it does |
-|------|--------|-------------|
-| `setup` | `bin/dev-setup` | Copies `.env` from main worktree, installs deps, symlinks skills |
-| `archive` | `bin/dev-teardown` | Removes skill symlinks, cleans up `.claude/` directory |
+| Hook | Script | 역할 |
+|------|--------|------|
+| `setup` | `bin/dev-setup` | 메인 워크트리의 `.env` 복사, deps 설치, 스킬 심링크 구성 |
+| `archive` | `bin/dev-teardown` | 스킬 심링크 제거, `.claude/` 디렉토리 정리 |
 
-When Conductor creates a new workspace, `bin/dev-setup` runs automatically. It detects the main worktree (via `git worktree list`), copies your `.env` so API keys carry over, and sets up dev mode — no manual steps needed.
+Conductor가 새 워크스페이스를 만들면 `bin/dev-setup`이 자동 실행됩니다. `git worktree list`로 메인 워크트리를 감지해 `.env`를 복사하고 dev mode를 구성합니다.
 
-**First-time setup:** Put your `ANTHROPIC_API_KEY` in `.env` in the main repo (see `.env.example`). Every Conductor workspace inherits it automatically.
+**첫 설정:** 메인 저장소의 `.env`에 `ANTHROPIC_API_KEY`를 넣어두면(`.env.example` 참고), 모든 Conductor 워크스페이스가 자동 상속합니다.
 
-## Things to know
+## 알아두면 좋은 점
 
-- **SKILL.md files are generated.** Edit the `.tmpl` template, not the `.md`. Run `bun run gen:skill-docs` to regenerate.
-- **TODOS.md is the unified backlog.** Organized by skill/component with P0-P4 priorities. `/ship` auto-detects completed items. All planning/review/retro skills read it for context.
-- **Browse source changes need a rebuild.** If you touch `browse/src/*.ts`, run `bun run build`.
-- **Dev mode shadows your global install.** Project-local skills take priority over `~/.claude/skills/gstack`. `bin/dev-teardown` restores the global one.
-- **Conductor workspaces are independent.** Each workspace is its own git worktree. `bin/dev-setup` runs automatically via `conductor.json`.
-- **`.env` propagates across worktrees.** Set it once in the main repo, all Conductor workspaces get it.
-- **`.claude/skills/` is gitignored.** The symlinks never get committed.
+- **SKILL.md는 생성 파일입니다.** `.md`가 아니라 `.tmpl`을 수정하고 `bun run gen:skill-docs`를 실행하세요.
+- **browse 소스 변경 시 재빌드 필요.** `browse/src/*.ts`를 수정했다면 `bun run build`를 실행하세요.
+- **dev mode는 글로벌 설치를 가립니다.** 프로젝트 로컬 스킬이 `~/.claude/skills/gstack`보다 우선합니다. `bin/dev-teardown`으로 복구됩니다.
+- **Conductor 워크스페이스는 독립적입니다.** 각 워크스페이스는 별도 git worktree이며 `bin/dev-setup`이 자동 실행됩니다.
+- **`.env`는 worktree 간 전파됩니다.** 메인 저장소에서 1회 설정하면 모든 Conductor 워크스페이스가 상속합니다.
+- **`.claude/skills/`는 gitignored입니다.** 심링크는 커밋되지 않습니다.
 
-## Testing your changes in a real project
+## 다른 저장소에서 브랜치 테스트하기
 
-**This is the recommended way to develop gstack.** Symlink your gstack checkout
-into the project where you actually use it, so your changes are live while you
-do real work:
+gstack를 한 워크스페이스에서 개발하면서 다른 프로젝트(예: 실제 앱)에서 브랜치를 검증하려면, 해당 프로젝트의 gstack 설치 방식에 따라 절차가 달라집니다.
 
-```bash
-# In your core project
-ln -sfn /path/to/your/gstack-checkout .claude/skills/gstack
-cd .claude/skills/gstack && bun install && bun run build
-```
+### 글로벌 설치만 있는 경우 (프로젝트에 `.claude/skills/gstack/` 없음)
 
-Now every gstack skill invocation in this project uses your working tree. Edit a
-template, run `bun run gen:skill-docs`, and the next `/review` or `/qa` call picks
-it up immediately.
-
-**To go back to the stable global install**, just remove the symlink:
-
-```bash
-rm .claude/skills/gstack
-```
-
-Claude Code falls back to `~/.claude/skills/gstack/` automatically.
-
-### Alternative: point your global install at a branch
-
-If you don't want per-project symlinks, you can switch the global install:
+글로벌 설치를 대상 브랜치로 전환합니다.
 
 ```bash
 cd ~/.claude/skills/gstack
 git fetch origin
-git checkout origin/<branch>
-bun install && bun run build
+git checkout origin/<branch>        # 예: origin/v0.3.2
+bun install                         # deps 변경 가능성 반영
+bun run build                       # 바이너리 재빌드
 ```
 
-This affects all projects. To revert: `git checkout main && git pull && bun run build`.
+이제 다른 프로젝트에서 Claude Code를 열면 `~/.claude/skills/`의 스킬을 자동 사용합니다. 끝나면 main으로 복귀:
 
-## Shipping your changes
+```bash
+cd ~/.claude/skills/gstack
+git checkout main && git pull
+bun run build
+```
 
-When you're happy with your skill edits:
+### 프로젝트에 vendored 복사본이 있는 경우 (`.claude/skills/gstack/`가 체크인된 형태)
+
+일부 프로젝트는 gstack를 저장소 내부에 복사해 사용합니다(복사본 내부 `.git` 없음). 로컬 스킬이 글로벌보다 우선하므로 vendored 복사본도 같이 교체해야 합니다.
+
+1. **글로벌 설치를 대상 브랜치로 전환**(소스 확보):
+   ```bash
+   cd ~/.claude/skills/gstack
+   git fetch origin
+   git checkout origin/<branch>      # 예: origin/v0.3.2
+   bun install && bun run build
+   ```
+
+2. **다른 프로젝트의 vendored 복사본 교체:**
+   ```bash
+   cd /path/to/other-project
+
+   # 기존 스킬 심링크 및 vendored 복사본 제거
+   for s in browse plan-ceo-review plan-eng-review review ship retro qa setup-browser-cookies; do
+     rm -f .claude/skills/$s
+   done
+   rm -rf .claude/skills/gstack
+
+   # 글로벌 설치에서 복사(.git 제거로 vendored 상태 유지)
+   cp -Rf ~/.claude/skills/gstack .claude/skills/gstack
+   rm -rf .claude/skills/gstack/.git
+
+   # 바이너리 재빌드 + 스킬 심링크 재생성
+   cd .claude/skills/gstack && ./setup
+   ```
+
+3. **변경 테스트:** 해당 프로젝트에서 Claude Code를 열고 스킬을 실행합니다.
+
+main으로 되돌릴 때는 1-2단계를 `git checkout main && git pull` 기준으로 반복하면 됩니다(`git checkout origin/<branch>` 대신).
+
+## 변경사항 릴리스
+
+스킬 수정이 만족스러우면:
 
 ```bash
 /ship
 ```
 
-This runs tests, reviews the diff, triages Greptile comments (with 2-tier escalation), manages TODOS.md, bumps the version, and opens a PR. See `ship/SKILL.md` for the full workflow.
+이 워크플로우는 테스트 실행, diff 리뷰, 버전 업데이트, PR 생성을 자동으로 진행합니다. 자세한 내용은 `ship/SKILL.md`를 참조하세요.

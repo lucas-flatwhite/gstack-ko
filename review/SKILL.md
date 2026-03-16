@@ -2,8 +2,8 @@
 name: review
 version: 1.0.0
 description: |
-  Pre-landing PR review. Analyzes diff against main for SQL safety, LLM trust
-  boundary violations, conditional side effects, and other structural issues.
+  랜딩 전 PR 검토. SQL 안전성, LLM 신뢰 경계 위반,
+  조건부 사이드 이펙트, 기타 구조적 이슈를 위해 main 대비 diff를 분석합니다.
 allowed-tools:
   - Bash
   - Read
@@ -13,176 +13,103 @@ allowed-tools:
   - Glob
   - AskUserQuestion
 ---
-<!-- AUTO-GENERATED from SKILL.md.tmpl — do not edit directly -->
-<!-- Regenerate: bun run gen:skill-docs -->
 
-## Preamble (run first)
+## Update Check (먼저 실행)
 
 ```bash
 _UPD=$(~/.claude/skills/gstack/bin/gstack-update-check 2>/dev/null || .claude/skills/gstack/bin/gstack-update-check 2>/dev/null || true)
-[ -n "$_UPD" ] && echo "$_UPD" || true
-mkdir -p ~/.gstack/sessions
-touch ~/.gstack/sessions/"$PPID"
-_SESSIONS=$(find ~/.gstack/sessions -mmin -120 -type f 2>/dev/null | wc -l | tr -d ' ')
-find ~/.gstack/sessions -mmin +120 -type f -delete 2>/dev/null || true
-_CONTRIB=$(~/.claude/skills/gstack/bin/gstack-config get gstack_contributor 2>/dev/null || true)
+[ -n "$_UPD" ] && echo "$_UPD"
 ```
 
-If output shows `UPGRADE_AVAILABLE <old> <new>`: read `~/.claude/skills/gstack/gstack-upgrade/SKILL.md` and follow the "Inline upgrade flow" (auto-upgrade if configured, otherwise AskUserQuestion with 4 options, write snooze state if declined). If `JUST_UPGRADED <from> <to>`: tell user "Running gstack v{to} (just updated!)" and continue.
+출력이 `UPGRADE_AVAILABLE <old> <new>`이면 `~/.claude/skills/gstack/gstack-upgrade/SKILL.md`를 읽고 "Inline upgrade flow"를 따릅니다 (업그레이드 여부 AskUserQuestion).
+`JUST_UPGRADED <from> <to>`이면 현재 버전을 사용자에게 알리고 계속합니다.
 
-## AskUserQuestion Format
+# 랜딩 전 PR 검토
 
-**ALWAYS follow this structure for every AskUserQuestion call:**
-1. Context: project name, current branch, what we're working on (1-2 sentences)
-2. The specific question or decision point
-3. `RECOMMENDATION: Choose [X] because [one-line reason]`
-4. Lettered options: `A) ... B) ... C) ...`
-
-If `_SESSIONS` is 3 or more: the user is juggling multiple gstack sessions and context-switching heavily. **ELI16 mode** — they may not remember what this conversation is about. Every AskUserQuestion MUST re-ground them: state the project, the branch, the current plan/task, then the specific problem, THEN the recommendation and options. Be extra clear and self-contained — assume they haven't looked at this window in 20 minutes.
-
-Per-skill instructions may add additional formatting rules on top of this baseline.
-
-## Contributor Mode
-
-If `_CONTRIB` is `true`: you are in **contributor mode**. When you hit friction with **gstack itself** (not the user's app), file a field report. Think: "hey, I was trying to do X with gstack and it didn't work / was confusing / was annoying. Here's what happened."
-
-**gstack issues:** browse command fails/wrong output, snapshot missing elements, skill instructions unclear or misleading, binary crash/hang, unhelpful error message, any rough edge or annoyance — even minor stuff.
-**NOT gstack issues:** user's app bugs, network errors to user's URL, auth failures on user's site.
-
-**To file:** write `~/.gstack/contributor-logs/{slug}.md` with this structure:
-
-```
-# {Title}
-
-Hey gstack team — ran into this while using /{skill-name}:
-
-**What I was trying to do:** {what the user/agent was attempting}
-**What happened instead:** {what actually happened}
-**How annoying (1-5):** {1=meh, 3=friction, 5=blocker}
-
-## Steps to reproduce
-1. {step}
-
-## Raw output
-(wrap any error messages or unexpected output in a markdown code block)
-
-**Date:** {YYYY-MM-DD} | **Version:** {gstack version} | **Skill:** /{skill}
-```
-
-Then run: `mkdir -p ~/.gstack/contributor-logs && open ~/.gstack/contributor-logs/{slug}.md`
-
-Slug: lowercase, hyphens, max 60 chars (e.g. `browse-snapshot-ref-gap`). Skip if file already exists. Max 3 reports per session. File inline and continue — don't stop the workflow. Tell user: "Filed gstack field report: {title}"
-
-# Pre-Landing PR Review
-
-You are running the `/review` workflow. Analyze the current branch's diff against main for structural issues that tests don't catch.
+`/review` 워크플로우를 실행합니다. 테스트가 잡아내지 못하는 구조적 이슈를 위해 현재 브랜치의 main 대비 diff를 분석합니다.
 
 ---
 
-## Step 1: Check branch
+## Step 1: 브랜치 확인
 
-1. Run `git branch --show-current` to get the current branch.
-2. If on `main`, output: **"Nothing to review — you're on main or have no changes against main."** and stop.
-3. Run `git fetch origin main --quiet && git diff origin/main --stat` to check if there's a diff. If no diff, output the same message and stop.
-
----
-
-## Step 2: Read the checklist
-
-Read `.claude/skills/review/checklist.md`.
-
-**If the file cannot be read, STOP and report the error.** Do not proceed without the checklist.
+1. `git branch --show-current`로 현재 브랜치를 가져옵니다.
+2. `main`에 있으면 다음을 출력하고 중지합니다: **"검토할 것이 없습니다 — main에 있거나 main 대비 변경사항이 없습니다."**
+3. `git fetch origin main --quiet && git diff origin/main --stat`으로 diff가 있는지 확인합니다. diff가 없으면 동일한 메시지를 출력하고 중지합니다.
 
 ---
 
-## Step 2.5: Check for Greptile review comments
+## Step 2: 체크리스트 읽기
 
-Read `.claude/skills/review/greptile-triage.md` and follow the fetch, filter, classify, and **escalation detection** steps.
+`.claude/skills/review/checklist.md`를 읽습니다.
 
-**If no PR exists, `gh` fails, API returns an error, or there are zero Greptile comments:** Skip this step silently. Greptile integration is additive — the review works without it.
-
-**If Greptile comments are found:** Store the classifications (VALID & ACTIONABLE, VALID BUT ALREADY FIXED, FALSE POSITIVE, SUPPRESSED) — you will need them in Step 5.
+**파일을 읽을 수 없으면 에러를 보고하고 중지합니다.** 체크리스트 없이 진행하지 않습니다.
 
 ---
 
-## Step 3: Get the diff
+## Step 2.5: Greptile 리뷰 코멘트 확인
 
-Fetch the latest main to avoid false positives from a stale local main:
+`.claude/skills/review/greptile-triage.md`를 읽고 fetch/filter/classify 절차를 수행합니다.
+
+- PR이 없거나 `gh` 호출 실패/API 에러/코멘트 0개인 경우: 조용히 건너뜁니다.
+- Greptile 코멘트가 있으면 분류 결과를 저장합니다:
+  - VALID & ACTIONABLE
+  - VALID BUT ALREADY FIXED
+  - FALSE POSITIVE
+  - SUPPRESSED
+
+---
+
+## Step 3: diff 가져오기
+
+오래된 로컬 main으로 인한 오탐을 방지하기 위해 최신 main을 가져옵니다:
 
 ```bash
 git fetch origin main --quiet
 ```
 
-Run `git diff origin/main` to get the full diff. This includes both committed and uncommitted changes against the latest main.
+전체 diff를 가져오기 위해 `git diff origin/main`을 실행합니다. 최신 main 대비 커밋된 변경사항과 미커밋 변경사항 모두 포함됩니다.
 
 ---
 
-## Step 4: Two-pass review
+## Step 4: 2단계 검토
 
-Apply the checklist against the diff in two passes:
+두 단계로 diff에 체크리스트 기준을 적용합니다:
 
-1. **Pass 1 (CRITICAL):** SQL & Data Safety, Race Conditions & Concurrency, LLM Output Trust Boundary, Enum & Value Completeness
-2. **Pass 2 (INFORMATIONAL):** Conditional Side Effects, Magic Numbers & String Coupling, Dead Code & Consistency, LLM Prompt Issues, Test Gaps, View/Frontend
+1. **Pass 1 (CRITICAL):** SQL 및 데이터 안전성, LLM 출력 신뢰 경계
+2. **Pass 2 (INFORMATIONAL):** 조건부 사이드 이펙트, 매직 넘버 및 문자열 결합, 데드 코드 및 일관성, LLM 프롬프트 이슈, 테스트 갭, 뷰/프론트엔드
 
-**Enum & Value Completeness requires reading code OUTSIDE the diff.** When the diff introduces a new enum value, status, tier, or type constant, use Grep to find all files that reference sibling values, then Read those files to check if the new value is handled. This is the one category where within-diff review is insufficient.
-
-Follow the output format specified in the checklist. Respect the suppressions — do NOT flag items listed in the "DO NOT flag" section.
+체크리스트에 지정된 출력 형식을 따릅니다. 억제 항목을 존중합니다 — "DO NOT flag" 섹션에 나열된 항목은 플래그를 달지 않습니다.
 
 ---
 
-## Step 5: Output findings
+## Step 5: 결과 출력
 
-**Always output ALL findings** — both critical and informational. The user must see every issue.
+**모든 결과를 항상 출력합니다** — critical과 informational 모두. 사용자가 모든 이슈를 볼 수 있어야 합니다.
 
-- If CRITICAL issues found: output all findings, then for EACH critical issue use a separate AskUserQuestion with the problem, then `RECOMMENDATION: Choose A because [one-line reason]`, then options (A: Fix it now, B: Acknowledge, C: False positive — skip).
-  After all critical questions are answered, output a summary of what the user chose for each issue. If the user chose A (fix) on any issue, apply the recommended fixes. If only B/C were chosen, no action needed.
-- If only non-critical issues found: output findings. No further action needed.
-- If no issues found: output `Pre-Landing Review: No issues found.`
+- CRITICAL 이슈가 발견된 경우: 모든 결과를 출력하고, 각 critical 이슈에 대해 별도 AskUserQuestion을 사용하여 문제, 권장 수정사항, 옵션(A: 지금 수정, B: 인지, C: 오탐 — 건너뛰기)을 제시합니다.
+  모든 critical 질문에 답변 후, 각 이슈에 대해 사용자가 선택한 것의 요약을 출력합니다. 사용자가 어떤 이슈에 A(수정)를 선택했다면, 권장 수정사항을 적용합니다. B/C만 선택됐다면 추가 조치 불필요.
+- non-critical 이슈만 발견된 경우: 결과를 출력합니다. 추가 조치 불필요.
+- 이슈가 없는 경우: `랜딩 전 검토: 이슈가 발견되지 않았습니다.`를 출력합니다.
 
-### Greptile comment resolution
+### Greptile 코멘트 처리
 
-After outputting your own findings, if Greptile comments were classified in Step 2.5:
+Step 2.5에서 Greptile 코멘트를 분류했다면, 기본 결과 출력 뒤에 다음을 추가합니다:
 
-**Include a Greptile summary in your output header:** `+ N Greptile comments (X valid, Y fixed, Z FP)`
-
-Before replying to any comment, run the **Escalation Detection** algorithm from greptile-triage.md to determine whether to use Tier 1 (friendly) or Tier 2 (firm) reply templates.
-
-1. **VALID & ACTIONABLE comments:** These are already included in your CRITICAL findings — they follow the same AskUserQuestion flow (A: Fix it now, B: Acknowledge, C: False positive). If the user chooses A (fix), reply using the **Fix reply template** from greptile-triage.md (include inline diff + explanation). If the user chooses C (false positive), reply using the **False Positive reply template** (include evidence + suggested re-rank), save to both per-project and global greptile-history.
-
-2. **FALSE POSITIVE comments:** Present each one via AskUserQuestion:
-   - Show the Greptile comment: file:line (or [top-level]) + body summary + permalink URL
-   - Explain concisely why it's a false positive
-   - Options:
-     - A) Reply to Greptile explaining why this is incorrect (recommended if clearly wrong)
-     - B) Fix it anyway (if low-effort and harmless)
-     - C) Ignore — don't reply, don't fix
-
-   If the user chooses A, reply using the **False Positive reply template** from greptile-triage.md (include evidence + suggested re-rank), save to both per-project and global greptile-history.
-
-3. **VALID BUT ALREADY FIXED comments:** Reply using the **Already Fixed reply template** from greptile-triage.md — no AskUserQuestion needed:
-   - Include what was done and the fixing commit SHA
-   - Save to both per-project and global greptile-history
-
-4. **SUPPRESSED comments:** Skip silently — these are known false positives from previous triage.
+1. 헤더에 Greptile 요약을 포함합니다: `+ N Greptile 코멘트 (X valid, Y fixed, Z FP)`.
+2. VALID & ACTIONABLE은 critical 흐름과 동일하게 처리합니다.
+3. FALSE POSITIVE는 AskUserQuestion으로 다음 옵션을 제시합니다:
+   - A) Greptile에 오탐 사유로 답글 (권장)
+   - B) 그래도 코드 수정
+   - C) 무시
+4. VALID BUT ALREADY FIXED는 `"좋은 지적입니다 — <commit-sha>에서 이미 수정되었습니다."`로 자동 답글합니다.
+5. SUPPRESSED는 조용히 건너뜁니다.
+6. FP 또는 already-fixed를 처리한 경우 `~/.gstack/greptile-history.md`에 기록합니다.
 
 ---
 
-## Step 5.5: TODOS cross-reference
+## 중요 규칙
 
-Read `TODOS.md` in the repository root (if it exists). Cross-reference the PR against open TODOs:
-
-- **Does this PR close any open TODOs?** If yes, note which items in your output: "This PR addresses TODO: <title>"
-- **Does this PR create work that should become a TODO?** If yes, flag it as an informational finding.
-- **Are there related TODOs that provide context for this review?** If yes, reference them when discussing related findings.
-
-If TODOS.md doesn't exist, skip this step silently.
-
----
-
-## Important Rules
-
-- **Read the FULL diff before commenting.** Do not flag issues already addressed in the diff.
-- **Read-only by default.** Only modify files if the user explicitly chooses "Fix it now" on a critical issue. Never commit, push, or create PRs.
-- **Be terse.** One line problem, one line fix. No preamble.
-- **Only flag real problems.** Skip anything that's fine.
-- **Use Greptile reply templates from greptile-triage.md.** Every reply includes evidence. Never post vague replies.
+- **코멘트 전에 전체 diff를 읽습니다.** diff에서 이미 해결된 이슈는 플래그를 달지 않습니다.
+- **기본적으로 읽기 전용.** critical 이슈에서 사용자가 명시적으로 "지금 수정"을 선택한 경우에만 파일을 수정합니다. 커밋, 푸시, PR 생성은 하지 않습니다.
+- **간결하게.** 한 줄 문제, 한 줄 수정. 서두 없음.
+- **실제 문제만 플래그합니다.** 괜찮은 것은 건너뜁니다.

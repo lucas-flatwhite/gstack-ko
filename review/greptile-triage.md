@@ -1,22 +1,22 @@
-# Greptile Comment Triage
+# Greptile 코멘트 트리아지
 
-Shared reference for fetching, filtering, and classifying Greptile review comments on GitHub PRs. Both `/review` (Step 2.5) and `/ship` (Step 3.75) reference this document.
+GitHub PR의 Greptile 리뷰 코멘트를 가져오고, 필터링하고, 분류하기 위한 공용 레퍼런스입니다. `/review`(Step 2.5)와 `/ship`(Step 3.75)에서 이 문서를 참조합니다.
 
 ---
 
-## Fetch
+## 가져오기(Fetch)
 
-Run these commands to detect the PR and fetch comments. Both API calls run in parallel.
+PR을 감지하고 코멘트를 가져오려면 아래 명령을 실행합니다. 두 API 호출은 병렬로 실행됩니다.
 
 ```bash
 REPO=$(gh repo view --json nameWithOwner --jq '.nameWithOwner' 2>/dev/null)
 PR_NUMBER=$(gh pr view --json number --jq '.number' 2>/dev/null)
 ```
 
-**If either fails or is empty:** Skip Greptile triage silently. This integration is additive — the workflow works without it.
+**둘 중 하나라도 실패하거나 비어 있으면:** Greptile 트리아지는 조용히 건너뜁니다. 이 통합은 부가 기능이며, 워크플로우는 없어도 동작합니다.
 
 ```bash
-# Fetch line-level review comments AND top-level PR comments in parallel
+# 라인 단위 리뷰 코멘트 + PR 상단 코멘트를 병렬로 가져오기
 gh api repos/$REPO/pulls/$PR_NUMBER/comments \
   --jq '.[] | select(.user.login == "greptile-apps[bot]") | select(.position != null) | {id: .id, path: .path, line: .line, body: .body, html_url: .html_url, source: "line-level"}' > /tmp/greptile_line.json &
 gh api repos/$REPO/issues/$PR_NUMBER/comments \
@@ -24,180 +24,82 @@ gh api repos/$REPO/issues/$PR_NUMBER/comments \
 wait
 ```
 
-**If API errors or zero Greptile comments across both endpoints:** Skip silently.
+**API 에러가 나거나 두 엔드포인트 합산 Greptile 코멘트가 0개면:** 조용히 건너뜁니다.
 
-The `position != null` filter on line-level comments automatically skips outdated comments from force-pushed code.
+라인 단위 코멘트에서 `position != null` 필터를 사용하면 force-push로 인해 구버전이 된 코멘트를 자동 제외할 수 있습니다.
 
 ---
 
-## Suppressions Check
+## 억제(Suppressions) 확인
 
-Derive the project-specific history path:
-```bash
-REMOTE_SLUG=$(browse/bin/remote-slug 2>/dev/null || ~/.claude/skills/gstack/browse/bin/remote-slug 2>/dev/null || basename "$(git rev-parse --show-toplevel 2>/dev/null || pwd)")
-PROJECT_HISTORY="$HOME/.gstack/projects/$REMOTE_SLUG/greptile-history.md"
-```
-
-Read `$PROJECT_HISTORY` if it exists (per-project suppressions). Each line records a previous triage outcome:
+`~/.gstack/greptile-history.md`가 있으면 읽습니다. 각 라인은 과거 트리아지 결과를 기록합니다:
 
 ```
 <date> | <repo> | <type:fp|fix|already-fixed> | <file-pattern> | <category>
 ```
 
-**Categories** (fixed set): `race-condition`, `null-check`, `error-handling`, `style`, `type-safety`, `security`, `performance`, `correctness`, `other`
+**카테고리 고정값:** `race-condition`, `null-check`, `error-handling`, `style`, `type-safety`, `security`, `performance`, `correctness`, `other`
 
-Match each fetched comment against entries where:
-- `type == fp` (only suppress known false positives, not previously fixed real issues)
-- `repo` matches the current repo
-- `file-pattern` matches the comment's file path
-- `category` matches the issue type in the comment
+가져온 각 코멘트는 아래 조건을 모두 만족하는 히스토리 항목과 매칭합니다:
+- `type == fp` (이미 해결된 실제 이슈가 아니라, 기존 false positive만 억제)
+- `repo`가 현재 저장소와 일치
+- `file-pattern`이 코멘트 파일 경로와 일치
+- `category`가 코멘트 이슈 유형과 일치
 
-Skip matched comments as **SUPPRESSED**.
+매칭되면 **SUPPRESSED**로 건너뜁니다.
 
-If the history file doesn't exist or has unparseable lines, skip those lines and continue — never fail on a malformed history file.
-
----
-
-## Classify
-
-For each non-suppressed comment:
-
-1. **Line-level comments:** Read the file at the indicated `path:line` and surrounding context (±10 lines)
-2. **Top-level comments:** Read the full comment body
-3. Cross-reference the comment against the full diff (`git diff origin/main`) and the review checklist
-4. Classify:
-   - **VALID & ACTIONABLE** — a real bug, race condition, security issue, or correctness problem that exists in the current code
-   - **VALID BUT ALREADY FIXED** — a real issue that was addressed in a subsequent commit on the branch. Identify the fixing commit SHA.
-   - **FALSE POSITIVE** — the comment misunderstands the code, flags something handled elsewhere, or is stylistic noise
-   - **SUPPRESSED** — already filtered in the suppressions check above
+히스토리 파일이 없거나 파싱 불가 라인이 있어도 해당 라인만 건너뛰고 계속합니다. 잘못된 히스토리 때문에 워크플로우를 실패시키지 않습니다.
 
 ---
 
-## Reply APIs
+## 분류(Classify)
 
-When replying to Greptile comments, use the correct endpoint based on comment source:
+억제되지 않은 각 코멘트에 대해:
 
-**Line-level comments** (from `pulls/$PR/comments`):
+1. **라인 단위 코멘트:** 해당 `path:line`과 주변 문맥(±10줄) 읽기
+2. **상단 코멘트:** 코멘트 본문 전체 읽기
+3. 전체 diff(`git diff origin/main`) 및 리뷰 체크리스트와 교차검증
+4. 아래 중 하나로 분류:
+   - **VALID & ACTIONABLE** — 현재 코드에 실제로 존재하는 버그/레이스 컨디션/보안/정합성 이슈
+   - **VALID BUT ALREADY FIXED** — 실제 이슈였으나 브랜치의 후속 커밋에서 이미 해결됨(해결 커밋 SHA 식별)
+   - **FALSE POSITIVE** — 코드 오해, 다른 위치에서 이미 처리, 또는 스타일성 노이즈
+   - **SUPPRESSED** — 위 억제 단계에서 이미 필터링됨
+
+---
+
+## Reply API
+
+Greptile 코멘트에 답글을 달 때는 코멘트 소스별로 올바른 엔드포인트를 사용합니다.
+
+**라인 단위 코멘트** (`pulls/$PR/comments`에서 온 경우):
 ```bash
 gh api repos/$REPO/pulls/$PR_NUMBER/comments/$COMMENT_ID/replies \
   -f body="<reply text>"
 ```
 
-**Top-level comments** (from `issues/$PR/comments`):
+**상단 코멘트** (`issues/$PR/comments`에서 온 경우):
 ```bash
 gh api repos/$REPO/issues/$PR_NUMBER/comments \
   -f body="<reply text>"
 ```
 
-**If a reply POST fails** (e.g., PR was closed, no write permission): warn and continue. Do not stop the workflow for a failed reply.
+**답글 POST 실패 시**(예: PR 닫힘, 쓰기 권한 없음): 경고만 남기고 계속 진행합니다. 답글 실패로 워크플로우를 중단하지 않습니다.
 
 ---
 
-## Reply Templates
+## 히스토리 파일 쓰기
 
-Use these templates for every Greptile reply. Always include concrete evidence — never post vague replies.
-
-### Tier 1 (First response) — Friendly, evidence-included
-
-**For FIXES (user chose to fix the issue):**
-
-```
-**Fixed** in `<commit-sha>`.
-
-\`\`\`diff
-- <old problematic line(s)>
-+ <new fixed line(s)>
-\`\`\`
-
-**Why:** <1-sentence explanation of what was wrong and how the fix addresses it>
-```
-
-**For ALREADY FIXED (issue addressed in a prior commit on the branch):**
-
-```
-**Already fixed** in `<commit-sha>`.
-
-**What was done:** <1-2 sentences describing how the existing commit addresses this issue>
-```
-
-**For FALSE POSITIVES (the comment is incorrect):**
-
-```
-**Not a bug.** <1 sentence directly stating why this is incorrect>
-
-**Evidence:**
-- <specific code reference showing the pattern is safe/correct>
-- <e.g., "The nil check is handled by `ActiveRecord::FinderMethods#find` which raises RecordNotFound, not nil">
-
-**Suggested re-rank:** This appears to be a `<style|noise|misread>` issue, not a `<what Greptile called it>`. Consider lowering severity.
-```
-
-### Tier 2 (Greptile re-flags after prior reply) — Firm, overwhelming evidence
-
-Use Tier 2 when escalation detection (below) identifies a prior GStack reply on the same thread. Include maximum evidence to close the discussion.
-
-```
-**This has been reviewed and confirmed as [intentional/already-fixed/not-a-bug].**
-
-\`\`\`diff
-<full relevant diff showing the change or safe pattern>
-\`\`\`
-
-**Evidence chain:**
-1. <file:line permalink showing the safe pattern or fix>
-2. <commit SHA where it was addressed, if applicable>
-3. <architecture rationale or design decision, if applicable>
-
-**Suggested re-rank:** Please recalibrate — this is a `<actual category>` issue, not `<claimed category>`. [Link to specific file change permalink if helpful]
-```
-
----
-
-## Escalation Detection
-
-Before composing a reply, check if a prior GStack reply already exists on this comment thread:
-
-1. **For line-level comments:** Fetch replies via `gh api repos/$REPO/pulls/$PR_NUMBER/comments/$COMMENT_ID/replies`. Check if any reply body contains GStack markers: `**Fixed**`, `**Not a bug.**`, `**Already fixed**`.
-
-2. **For top-level comments:** Scan the fetched issue comments for replies posted after the Greptile comment that contain GStack markers.
-
-3. **If a prior GStack reply exists AND Greptile posted again on the same file+category:** Use Tier 2 (firm) templates.
-
-4. **If no prior GStack reply exists:** Use Tier 1 (friendly) templates.
-
-If escalation detection fails (API error, ambiguous thread): default to Tier 1. Never escalate on ambiguity.
-
----
-
-## Severity Assessment & Re-ranking
-
-When classifying comments, also assess whether Greptile's implied severity matches reality:
-
-- If Greptile flags something as a **security/correctness/race-condition** issue but it's actually a **style/performance** nit: include `**Suggested re-rank:**` in the reply requesting the category be corrected.
-- If Greptile flags a low-severity style issue as if it were critical: push back in the reply.
-- Always be specific about why the re-ranking is warranted — cite code and line numbers, not opinions.
-
----
-
-## History File Writes
-
-Before writing, ensure both directories exist:
+쓰기 전에 디렉토리를 보장합니다:
 ```bash
-REMOTE_SLUG=$(browse/bin/remote-slug 2>/dev/null || ~/.claude/skills/gstack/browse/bin/remote-slug 2>/dev/null || basename "$(git rev-parse --show-toplevel 2>/dev/null || pwd)")
-mkdir -p "$HOME/.gstack/projects/$REMOTE_SLUG"
 mkdir -p ~/.gstack
 ```
 
-Append one line per triage outcome to **both** files (per-project for suppressions, global for retro):
-- `~/.gstack/projects/$REMOTE_SLUG/greptile-history.md` (per-project)
-- `~/.gstack/greptile-history.md` (global aggregate)
-
-Format:
+`~/.gstack/greptile-history.md`에 트리아지 결과를 줄 단위로 append합니다:
 ```
 <YYYY-MM-DD> | <owner/repo> | <type> | <file-pattern> | <category>
 ```
 
-Example entries:
+예시:
 ```
 2026-03-13 | garrytan/myapp | fp | app/services/auth_service.rb | race-condition
 2026-03-13 | garrytan/myapp | fix | app/models/user.rb | null-check
@@ -206,15 +108,15 @@ Example entries:
 
 ---
 
-## Output Format
+## 출력 형식
 
-Include a Greptile summary in the output header:
+출력 헤더에 Greptile 요약을 포함합니다:
 ```
 + N Greptile comments (X valid, Y fixed, Z FP)
 ```
 
-For each classified comment, show:
-- Classification tag: `[VALID]`, `[FIXED]`, `[FALSE POSITIVE]`, `[SUPPRESSED]`
-- File:line reference (for line-level) or `[top-level]` (for top-level)
-- One-line body summary
-- Permalink URL (the `html_url` field)
+분류된 각 코멘트에 대해 표시:
+- 분류 태그: `[VALID]`, `[FIXED]`, `[FALSE POSITIVE]`, `[SUPPRESSED]`
+- 파일:줄 참조(라인 단위) 또는 `[top-level]`(상단 코멘트)
+- 본문 한 줄 요약
+- 퍼머링크 URL (`html_url`)
