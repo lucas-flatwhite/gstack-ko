@@ -2,90 +2,39 @@
 name: setup-browser-cookies
 version: 1.0.0
 description: |
-  Import cookies from your real browser (Comet, Chrome, Arc, Brave, Edge) into the
-  headless browse session. Opens an interactive picker UI where you select which
-  cookie domains to import. Use before QA testing authenticated pages.
+  실제 브라우저(Comet, Chrome, Arc, Brave, Edge)에서 헤드리스 browse 세션으로
+  쿠키를 가져옵니다. 가져올 쿠키 도메인을 선택하는 대화형 선택기 UI를 엽니다.
+  인증된 페이지를 QA 테스트하기 전에 사용합니다.
 allowed-tools:
   - Bash
   - Read
   - AskUserQuestion
 ---
-<!-- AUTO-GENERATED from SKILL.md.tmpl — do not edit directly -->
-<!-- Regenerate: bun run gen:skill-docs -->
 
-## Preamble (run first)
+## Update Check (먼저 실행)
 
 ```bash
 _UPD=$(~/.claude/skills/gstack/bin/gstack-update-check 2>/dev/null || .claude/skills/gstack/bin/gstack-update-check 2>/dev/null || true)
 [ -n "$_UPD" ] && echo "$_UPD" || true
-mkdir -p ~/.gstack/sessions
-touch ~/.gstack/sessions/"$PPID"
-_SESSIONS=$(find ~/.gstack/sessions -mmin -120 -type f 2>/dev/null | wc -l | tr -d ' ')
-find ~/.gstack/sessions -mmin +120 -type f -delete 2>/dev/null || true
-_CONTRIB=$(~/.claude/skills/gstack/bin/gstack-config get gstack_contributor 2>/dev/null || true)
 ```
 
-If output shows `UPGRADE_AVAILABLE <old> <new>`: read `~/.claude/skills/gstack/gstack-upgrade/SKILL.md` and follow the "Inline upgrade flow" (auto-upgrade if configured, otherwise AskUserQuestion with 4 options, write snooze state if declined). If `JUST_UPGRADED <from> <to>`: tell user "Running gstack v{to} (just updated!)" and continue.
+출력이 `UPGRADE_AVAILABLE <old> <new>`이면 `~/.claude/skills/gstack/gstack-upgrade/SKILL.md`를 읽고 "Inline upgrade flow"를 따릅니다.
+`JUST_UPGRADED <from> <to>`이면 현재 버전을 사용자에게 알리고 계속합니다.
 
-## AskUserQuestion Format
+# 브라우저 쿠키 설정
 
-**ALWAYS follow this structure for every AskUserQuestion call:**
-1. Context: project name, current branch, what we're working on (1-2 sentences)
-2. The specific question or decision point
-3. `RECOMMENDATION: Choose [X] because [one-line reason]`
-4. Lettered options: `A) ... B) ... C) ...`
+실제 Chromium 브라우저에서 헤드리스 browse 세션으로 로그인한 세션을 가져옵니다.
 
-If `_SESSIONS` is 3 or more: the user is juggling multiple gstack sessions and context-switching heavily. **ELI16 mode** — they may not remember what this conversation is about. Every AskUserQuestion MUST re-ground them: state the project, the branch, the current plan/task, then the specific problem, THEN the recommendation and options. Be extra clear and self-contained — assume they haven't looked at this window in 20 minutes.
+## 작동 방식
 
-Per-skill instructions may add additional formatting rules on top of this baseline.
+1. browse 바이너리를 찾습니다
+2. `cookie-import-browser`를 실행하여 설치된 브라우저를 감지하고 선택기 UI를 엽니다
+3. 사용자가 브라우저에서 가져올 쿠키 도메인을 선택합니다
+4. 쿠키가 복호화되어 Playwright 세션에 로드됩니다
 
-## Contributor Mode
+## 단계
 
-If `_CONTRIB` is `true`: you are in **contributor mode**. When you hit friction with **gstack itself** (not the user's app), file a field report. Think: "hey, I was trying to do X with gstack and it didn't work / was confusing / was annoying. Here's what happened."
-
-**gstack issues:** browse command fails/wrong output, snapshot missing elements, skill instructions unclear or misleading, binary crash/hang, unhelpful error message, any rough edge or annoyance — even minor stuff.
-**NOT gstack issues:** user's app bugs, network errors to user's URL, auth failures on user's site.
-
-**To file:** write `~/.gstack/contributor-logs/{slug}.md` with this structure:
-
-```
-# {Title}
-
-Hey gstack team — ran into this while using /{skill-name}:
-
-**What I was trying to do:** {what the user/agent was attempting}
-**What happened instead:** {what actually happened}
-**How annoying (1-5):** {1=meh, 3=friction, 5=blocker}
-
-## Steps to reproduce
-1. {step}
-
-## Raw output
-(wrap any error messages or unexpected output in a markdown code block)
-
-**Date:** {YYYY-MM-DD} | **Version:** {gstack version} | **Skill:** /{skill}
-```
-
-Then run: `mkdir -p ~/.gstack/contributor-logs && open ~/.gstack/contributor-logs/{slug}.md`
-
-Slug: lowercase, hyphens, max 60 chars (e.g. `browse-snapshot-ref-gap`). Skip if file already exists. Max 3 reports per session. File inline and continue — don't stop the workflow. Tell user: "Filed gstack field report: {title}"
-
-# Setup Browser Cookies
-
-Import logged-in sessions from your real Chromium browser into the headless browse session.
-
-## How it works
-
-1. Find the browse binary
-2. Run `cookie-import-browser` to detect installed browsers and open the picker UI
-3. User selects which cookie domains to import in their browser
-4. Cookies are decrypted and loaded into the Playwright session
-
-## Steps
-
-### 1. Find the browse binary
-
-## SETUP (run this check BEFORE any browse command)
+## SETUP (browse 커맨드 전에 반드시 실행)
 
 ```bash
 _ROOT=$(git rev-parse --show-toplevel 2>/dev/null)
@@ -93,55 +42,55 @@ B=""
 [ -n "$_ROOT" ] && [ -x "$_ROOT/.claude/skills/gstack/browse/dist/browse" ] && B="$_ROOT/.claude/skills/gstack/browse/dist/browse"
 [ -z "$B" ] && B=~/.claude/skills/gstack/browse/dist/browse
 if [ -x "$B" ]; then
-  echo "READY: $B"
+  echo "준비됨: $B"
 else
   echo "NEEDS_SETUP"
 fi
 ```
 
-If `NEEDS_SETUP`:
-1. Tell the user: "gstack browse needs a one-time build (~10 seconds). OK to proceed?" Then STOP and wait.
-2. Run: `cd <SKILL_DIR> && ./setup`
-3. If `bun` is not installed: `curl -fsSL https://bun.sh/install | bash`
+`NEEDS_SETUP`인 경우:
+1. 사용자에게 말합니다: "gstack browse를 처음 빌드해야 합니다 (~10초). 계속할까요?" 그런 다음 중지하고 기다립니다.
+2. 실행: `cd <SKILL_DIR> && ./setup`
+3. `bun`이 설치되지 않은 경우: `curl -fsSL https://bun.sh/install | bash`
 
-### 2. Open the cookie picker
+### 2. 쿠키 선택기 열기
 
 ```bash
 $B cookie-import-browser
 ```
 
-This auto-detects installed Chromium browsers (Comet, Chrome, Arc, Brave, Edge) and opens
-an interactive picker UI in your default browser where you can:
-- Switch between installed browsers
-- Search domains
-- Click "+" to import a domain's cookies
-- Click trash to remove imported cookies
+설치된 Chromium 브라우저(Comet, Chrome, Arc, Brave, Edge)를 자동 감지하고
+기본 브라우저에서 대화형 선택기 UI를 열어 다음 작업을 할 수 있습니다:
+- 설치된 브라우저 간 전환
+- 도메인 검색
+- "+"를 클릭하여 도메인 쿠키 가져오기
+- 휴지통 아이콘을 클릭하여 가져온 쿠키 제거
 
-Tell the user: **"Cookie picker opened — select the domains you want to import in your browser, then tell me when you're done."**
+사용자에게 말합니다: **"쿠키 선택기가 열렸습니다 — 브라우저에서 가져올 도메인을 선택하고, 완료되면 알려주세요."**
 
-### 3. Direct import (alternative)
+### 3. 직접 가져오기 (대안)
 
-If the user specifies a domain directly (e.g., `/setup-browser-cookies github.com`), skip the UI:
+사용자가 도메인을 직접 지정하는 경우 (예: `/setup-browser-cookies github.com`), UI를 건너뜁니다:
 
 ```bash
 $B cookie-import-browser comet --domain github.com
 ```
 
-Replace `comet` with the appropriate browser if specified.
+지정된 경우 `comet`을 적절한 브라우저로 교체합니다.
 
-### 4. Verify
+### 4. 확인
 
-After the user confirms they're done:
+사용자가 완료를 확인한 후:
 
 ```bash
 $B cookies
 ```
 
-Show the user a summary of imported cookies (domain counts).
+가져온 쿠키 요약(도메인 카운트)을 사용자에게 보여줍니다.
 
-## Notes
+## 참고사항
 
-- First import per browser may trigger a macOS Keychain dialog — click "Allow" / "Always Allow"
-- Cookie picker is served on the same port as the browse server (no extra process)
-- Only domain names and cookie counts are shown in the UI — no cookie values are exposed
-- The browse session persists cookies between commands, so imported cookies work immediately
+- 브라우저별 첫 번째 가져오기 시 macOS 키체인 다이얼로그가 나타날 수 있습니다 — "허용" / "항상 허용" 클릭
+- 쿠키 선택기는 browse 서버와 같은 포트에서 제공됩니다 (추가 프로세스 없음)
+- UI에는 도메인 이름과 쿠키 개수만 표시됩니다 — 실제 쿠키 값은 노출되지 않습니다
+- browse 세션은 커맨드 간 쿠키를 유지하므로, 가져온 쿠키는 즉시 동작합니다

@@ -2,254 +2,193 @@
 name: plan-eng-review
 version: 1.0.0
 description: |
-  Eng manager-mode plan review. Lock in the execution plan — architecture,
-  data flow, diagrams, edge cases, test coverage, performance. Walks through
-  issues interactively with opinionated recommendations.
+  CEO/창업자 모드 계획 검토. 문제를 재사고하고, 10점짜리 제품을 찾고,
+  전제를 도전하고, 더 좋은 제품을 만들 때 범위를 확장합니다. 세 가지 모드:
+  SCOPE EXPANSION (크게 꿈꾸기), HOLD SCOPE (최대 엄밀성), SCOPE REDUCTION
+  (핵심으로 압축).
 allowed-tools:
   - Read
-  - Write
   - Grep
   - Glob
-  - AskUserQuestion
   - Bash
+  - AskUserQuestion
 ---
-<!-- AUTO-GENERATED from SKILL.md.tmpl — do not edit directly -->
-<!-- Regenerate: bun run gen:skill-docs -->
 
-## Preamble (run first)
+## Update Check (먼저 실행)
 
 ```bash
 _UPD=$(~/.claude/skills/gstack/bin/gstack-update-check 2>/dev/null || .claude/skills/gstack/bin/gstack-update-check 2>/dev/null || true)
-[ -n "$_UPD" ] && echo "$_UPD" || true
-mkdir -p ~/.gstack/sessions
-touch ~/.gstack/sessions/"$PPID"
-_SESSIONS=$(find ~/.gstack/sessions -mmin -120 -type f 2>/dev/null | wc -l | tr -d ' ')
-find ~/.gstack/sessions -mmin +120 -type f -delete 2>/dev/null || true
-_CONTRIB=$(~/.claude/skills/gstack/bin/gstack-config get gstack_contributor 2>/dev/null || true)
+[ -n "$_UPD" ] && echo "$_UPD"
 ```
 
-If output shows `UPGRADE_AVAILABLE <old> <new>`: read `~/.claude/skills/gstack/gstack-upgrade/SKILL.md` and follow the "Inline upgrade flow" (auto-upgrade if configured, otherwise AskUserQuestion with 4 options, write snooze state if declined). If `JUST_UPGRADED <from> <to>`: tell user "Running gstack v{to} (just updated!)" and continue.
+출력이 `UPGRADE_AVAILABLE <old> <new>`이면 `~/.claude/skills/gstack/gstack-upgrade/SKILL.md`를 읽고 "Inline upgrade flow"를 따릅니다 (업그레이드 여부 AskUserQuestion).
+`JUST_UPGRADED <from> <to>`이면 현재 버전을 사용자에게 알리고 계속합니다.
 
-## AskUserQuestion Format
+# 계획 검토 모드 — 엔지니어링 매니저
 
-**ALWAYS follow this structure for every AskUserQuestion call:**
-1. Context: project name, current branch, what we're working on (1-2 sentences)
-2. The specific question or decision point
-3. `RECOMMENDATION: Choose [X] because [one-line reason]`
-4. Lettered options: `A) ... B) ... C) ...`
+## 엔지니어링 선호도 (모든 권고사항의 가이드로 사용)
+* DRY가 중요합니다 — 반복을 적극적으로 플래그합니다.
+* 테스트가 잘 된 코드는 협상 불가; 너무 많은 테스트보다 너무 적은 테스트가 낫습니다.
+* "충분히 엔지니어링된" 코드를 원합니다 — 과소 엔지니어링(취약, 임시방편)도 과도한 엔지니어링(성급한 추상화, 불필요한 복잡성)도 아닌.
+* 더 적은 엣지 케이스보다 더 많은 엣지 케이스를 처리하는 방향; 신중함 > 속도.
+* 영리함보다 명시적인 것을 선호.
+* 최소 diff: 새로운 추상화와 터치되는 파일을 최소화하여 목표를 달성.
+* 관찰성은 선택 사항이 아님 — 새 코드패스에는 로그, 메트릭, 또는 트레이스가 필요합니다.
+* 보안은 선택 사항이 아님 — 새 코드패스에는 위협 모델링이 필요합니다.
+* 배포는 원자적이지 않음 — 부분 상태, 롤백, 기능 플래그를 계획합니다.
+* 복잡한 디자인을 위한 코드 주석의 ASCII 다이어그램 — 모델(상태 전환), 서비스(파이프라인), 컨트롤러(요청 흐름), Concerns(믹스인 동작), 테스트(비명확한 설정).
+* 다이어그램 유지관리는 변경의 일부 — 오래된 다이어그램은 없는 것보다 더 나쁩니다.
 
-If `_SESSIONS` is 3 or more: the user is juggling multiple gstack sessions and context-switching heavily. **ELI16 mode** — they may not remember what this conversation is about. Every AskUserQuestion MUST re-ground them: state the project, the branch, the current plan/task, then the specific problem, THEN the recommendation and options. Be extra clear and self-contained — assume they haven't looked at this window in 20 minutes.
+## 우선순위 계층 (컨텍스트 압박 하)
+Step 0 > 시스템 감사 > 에러/rescue 맵 > 테스트 다이어그램 > 실패 모드 > 의견이 담긴 권고사항 > 그 외.
+Step 0, 시스템 감사, 에러/rescue 맵, 실패 모드 섹션은 절대 건너뛰지 않습니다. 이것들이 가장 높은 레버리지 출력입니다.
 
-Per-skill instructions may add additional formatting rules on top of this baseline.
+## Step 0: 범위 도전
 
-## Contributor Mode
+세 가지 질문을 먼저 합니다:
+1. 각 하위 문제를 이미 부분적으로 또는 완전히 해결하는 기존 코드는 무엇인가?
+2. 최소 실행 가능한 변경 세트는 무엇인가?
+3. 계획이 8개 이상의 파일에 접근하거나 2개 이상의 새 클래스를 추가하는가 (잠재적 코드 스멜)?
 
-If `_CONTRIB` is `true`: you are in **contributor mode**. When you hit friction with **gstack itself** (not the user's app), file a field report. Think: "hey, I was trying to do X with gstack and it didn't work / was confusing / was annoying. Here's what happened."
+그런 다음 사용자에게 선택을 제시합니다: SCOPE REDUCTION (최소 버전), BIG CHANGE (전체 계획), SMALL CHANGE (최소 안전 변경).
 
-**gstack issues:** browse command fails/wrong output, snapshot missing elements, skill instructions unclear or misleading, binary crash/hang, unhelpful error message, any rough edge or annoyance — even minor stuff.
-**NOT gstack issues:** user's app bugs, network errors to user's URL, auth failures on user's site.
+**중지.** 응답을 기다립니다.
 
-**To file:** write `~/.gstack/contributor-logs/{slug}.md` with this structure:
+---
 
+## 검토 섹션 (범위와 모드 합의 후 4개 섹션)
+
+### 섹션 1: 아키텍처 검토
+
+평가 및 다이어그램 작성:
+* 전체 시스템 디자인 및 컴포넌트 경계. 의존성 그래프를 그립니다.
+* 데이터 흐름 — 4개의 모든 경로. 모든 새 데이터 흐름에 대해 ASCII 다이어그램으로:
+    * 정상 경로 (데이터가 올바르게 흐름)
+    * nil 경로 (입력이 nil/missing — 어떻게 되나?)
+    * 빈 경로 (입력이 있지만 비어있음/길이 0 — 어떻게 되나?)
+    * 에러 경로 (업스트림 호출 실패 — 어떻게 되나?)
+* 상태 기계. 모든 새로운 상태가 있는 객체에 대한 ASCII 다이어그램. 불가능/유효하지 않은 전환과 이를 방지하는 것을 포함.
+* 결합 우려사항. 이전에 연결되지 않았던 어떤 컴포넌트가 이제 연결되나? 그 결합이 정당화되나? 변경 전후 의존성 그래프를 그립니다.
+* 스케일링 특성. 10x 부하에서 무엇이 먼저 깨지나? 100x에서는?
+* 단일 실패 지점. 매핑합니다.
+* 보안 아키텍처. 인증 경계, 데이터 접근 패턴, API 표면. 각 새 엔드포인트나 데이터 변형에 대해: 누가 호출할 수 있나, 무엇을 얻나, 무엇을 변경할 수 있나?
+* 프로덕션 실패 시나리오. 각 새 통합 지점에 대해 하나의 현실적인 프로덕션 실패(타임아웃, 캐스케이드, 데이터 손상, 인증 실패)와 계획이 이를 처리하는지 설명합니다.
+* 롤백 자세. 이것이 출시되고 즉시 깨지면 롤백 절차는 무엇인가? Git revert? 기능 플래그? DB 마이그레이션 롤백? 얼마나 오래?
+
+필수 ASCII 다이어그램: 기존 것들과의 관계에서 새 컴포넌트를 보여주는 전체 시스템 아키텍처.
+**중지.** 이슈당 AskUserQuestion 하나. 배치하지 않습니다. 권고사항 + 이유. 이슈가 없거나 수정이 명확하면, 할 것을 말하고 계속 진행합니다 — 질문 낭비하지 않습니다. 사용자 응답까지 진행하지 않습니다.
+
+### 섹션 2: 코드 품질 검토
+
+평가:
+* 코드 조직 및 모듈 구조. 새 코드가 기존 패턴에 맞나? 벗어난다면 이유가 있나?
+* DRY 위반. 적극적으로. 동일한 로직이 다른 곳에 존재하면, 플래그를 달고 파일과 줄을 참조합니다.
+* 명명 품질. 새 클래스, 메서드, 변수가 어떻게 하는지가 아닌 무엇을 하는지로 명명됐나?
+* 에러 처리 패턴. (섹션 2와 상호 참조 — 이 섹션은 패턴을 검토; 섹션 2는 구체적인 것을 매핑.)
+* 누락된 엣지 케이스. 명시적으로 나열: "X가 nil일 때 어떻게 되나?" "API가 429를 반환할 때?" 등.
+* 과도한 엔지니어링 확인. 아직 존재하지 않는 문제를 해결하는 새 추상화가 있나?
+* 불충분한 엔지니어링 확인. 취약하거나, 정상 경로만 가정하거나, 명백한 방어적 확인이 없는 것이 있나?
+* 순환 복잡성. 5번 이상 분기하는 새 메서드에 플래그를 달고 리팩터링을 제안합니다.
+**중지.** 이슈당 AskUserQuestion 하나. 배치하지 않습니다. 권고사항 + 이유. 이슈가 없거나 수정이 명확하면, 할 것을 말하고 계속 진행합니다 — 질문 낭비하지 않습니다. 사용자 응답까지 진행하지 않습니다.
+
+### 섹션 3: 테스트 검토
+
+이 계획이 도입하는 모든 새로운 것을 완전히 다이어그램으로 그립니다:
 ```
-# {Title}
+새 UX 흐름:
+  [각 새 사용자 가시적 상호작용 나열]
 
-Hey gstack team — ran into this while using /{skill-name}:
+새 데이터 흐름:
+  [데이터가 시스템을 통해 가는 각 새 경로 나열]
 
-**What I was trying to do:** {what the user/agent was attempting}
-**What happened instead:** {what actually happened}
-**How annoying (1-5):** {1=meh, 3=friction, 5=blocker}
+새 코드패스:
+  [각 새 분기, 조건, 또는 실행 경로 나열]
 
-## Steps to reproduce
-1. {step}
+새 백그라운드 잡 / 비동기 작업:
+  [각각 나열]
 
-## Raw output
-(wrap any error messages or unexpected output in a markdown code block)
+새 통합 / 외부 호출:
+  [각각 나열]
 
-**Date:** {YYYY-MM-DD} | **Version:** {gstack version} | **Skill:** /{skill}
-```
-
-Then run: `mkdir -p ~/.gstack/contributor-logs && open ~/.gstack/contributor-logs/{slug}.md`
-
-Slug: lowercase, hyphens, max 60 chars (e.g. `browse-snapshot-ref-gap`). Skip if file already exists. Max 3 reports per session. File inline and continue — don't stop the workflow. Tell user: "Filed gstack field report: {title}"
-
-# Plan Review Mode
-
-Review this plan thoroughly before making any code changes. For every issue or recommendation, explain the concrete tradeoffs, give me an opinionated recommendation, and ask for my input before assuming a direction.
-
-## Priority hierarchy
-If you are running low on context or the user asks you to compress: Step 0 > Test diagram > Opinionated recommendations > Everything else. Never skip Step 0 or the test diagram.
-
-## My engineering preferences (use these to guide your recommendations):
-* DRY is important—flag repetition aggressively.
-* Well-tested code is non-negotiable; I'd rather have too many tests than too few.
-* I want code that's "engineered enough" — not under-engineered (fragile, hacky) and not over-engineered (premature abstraction, unnecessary complexity).
-* I err on the side of handling more edge cases, not fewer; thoughtfulness > speed.
-* Bias toward explicit over clever.
-* Minimal diff: achieve the goal with the fewest new abstractions and files touched.
-
-## Documentation and diagrams:
-* I value ASCII art diagrams highly — for data flow, state machines, dependency graphs, processing pipelines, and decision trees. Use them liberally in plans and design docs.
-* For particularly complex designs or behaviors, embed ASCII diagrams directly in code comments in the appropriate places: Models (data relationships, state transitions), Controllers (request flow), Concerns (mixin behavior), Services (processing pipelines), and Tests (what's being set up and why) when the test structure is non-obvious.
-* **Diagram maintenance is part of the change.** When modifying code that has ASCII diagrams in comments nearby, review whether those diagrams are still accurate. Update them as part of the same commit. Stale diagrams are worse than no diagrams — they actively mislead. Flag any stale diagrams you encounter during review even if they're outside the immediate scope of the change.
-
-## BEFORE YOU START:
-
-### Step 0: Scope Challenge
-Before reviewing anything, answer these questions:
-1. **What existing code already partially or fully solves each sub-problem?** Can we capture outputs from existing flows rather than building parallel ones?
-2. **What is the minimum set of changes that achieves the stated goal?** Flag any work that could be deferred without blocking the core objective. Be ruthless about scope creep.
-3. **Complexity check:** If the plan touches more than 8 files or introduces more than 2 new classes/services, treat that as a smell and challenge whether the same goal can be achieved with fewer moving parts.
-4. **TODOS cross-reference:** Read `TODOS.md` if it exists. Are any deferred items blocking this plan? Can any deferred items be bundled into this PR without expanding scope? Does this plan create new work that should be captured as a TODO?
-
-Then ask if I want one of three options:
-1. **SCOPE REDUCTION:** The plan is overbuilt. Propose a minimal version that achieves the core goal, then review that.
-2. **BIG CHANGE:** Work through interactively, one section at a time (Architecture → Code Quality → Tests → Performance) with at most 8 top issues per section.
-3. **SMALL CHANGE:** Compressed review — Step 0 + one combined pass covering all 4 sections. For each section, pick the single most important issue (think hard — this forces you to prioritize). Present as a single numbered list with lettered options + mandatory test diagram + completion summary. One AskUserQuestion round at the end. For each issue in the batch, state your recommendation and explain WHY, with lettered options.
-
-**Critical: If I do not select SCOPE REDUCTION, respect that decision fully.** Your job becomes making the plan I chose succeed, not continuing to lobby for a smaller plan. Raise scope concerns once in Step 0 — after that, commit to my chosen scope and optimize within it. Do not silently reduce scope, skip planned components, or re-argue for less work during later review sections.
-
-## Review Sections (after scope is agreed)
-
-### 1. Architecture review
-Evaluate:
-* Overall system design and component boundaries.
-* Dependency graph and coupling concerns.
-* Data flow patterns and potential bottlenecks.
-* Scaling characteristics and single points of failure.
-* Security architecture (auth, data access, API boundaries).
-* Whether key flows deserve ASCII diagrams in the plan or in code comments.
-* For each new codepath or integration point, describe one realistic production failure scenario and whether the plan accounts for it.
-
-**STOP.** For each issue found in this section, call AskUserQuestion individually. One issue per call. Present options, state your recommendation, explain WHY. Do NOT batch multiple issues into one AskUserQuestion. Only proceed to the next section after ALL issues in this section are resolved.
-
-### 2. Code quality review
-Evaluate:
-* Code organization and module structure.
-* DRY violations—be aggressive here.
-* Error handling patterns and missing edge cases (call these out explicitly).
-* Technical debt hotspots.
-* Areas that are over-engineered or under-engineered relative to my preferences.
-* Existing ASCII diagrams in touched files — are they still accurate after this change?
-
-**STOP.** For each issue found in this section, call AskUserQuestion individually. One issue per call. Present options, state your recommendation, explain WHY. Do NOT batch multiple issues into one AskUserQuestion. Only proceed to the next section after ALL issues in this section are resolved.
-
-### 3. Test review
-Make a diagram of all new UX, new data flow, new codepaths, and new branching if statements or outcomes. For each, note what is new about the features discussed in this branch and plan. Then, for each new item in the diagram, make sure there is a JS or Rails test.
-
-For LLM/prompt changes: check the "Prompt/LLM changes" file patterns listed in CLAUDE.md. If this plan touches ANY of those patterns, state which eval suites must be run, which cases should be added, and what baselines to compare against. Then use AskUserQuestion to confirm the eval scope with the user.
-
-**STOP.** For each issue found in this section, call AskUserQuestion individually. One issue per call. Present options, state your recommendation, explain WHY. Do NOT batch multiple issues into one AskUserQuestion. Only proceed to the next section after ALL issues in this section are resolved.
-
-### Test Plan Artifact
-
-After producing the test diagram, write a test plan artifact to the project directory so `/qa` and `/qa-only` can consume it as primary test input (replacing the lossy git-diff heuristic):
-
-```bash
-SLUG=$(git remote get-url origin 2>/dev/null | sed 's|.*[:/]\([^/]*/[^/]*\)\.git$|\1|;s|.*[:/]\([^/]*/[^/]*\)$|\1|' | tr '/' '-')
-BRANCH=$(git rev-parse --abbrev-ref HEAD)
-USER=$(whoami)
-DATETIME=$(date +%Y%m%d-%H%M%S)
-mkdir -p ~/.gstack/projects/$SLUG
+새 에러/rescue 경로:
+  [각각 나열 — 섹션 2와 상호 참조]
 ```
 
-Write to `~/.gstack/projects/{slug}/{user}-{branch}-test-plan-{datetime}.md`:
+다이어그램의 각 항목에 대해:
+* 어떤 유형의 테스트가 커버하나? (단위 / 통합 / 시스템 / E2E)
+* 계획에 그것에 대한 테스트가 있나? 없다면, 테스트 스펙 헤더를 작성합니다.
+* 정상 경로 테스트는 무엇인가?
+* 실패 경로 테스트는 무엇인가? (구체적 — 어떤 실패?)
+* 엣지 케이스 테스트는 무엇인가? (nil, 빈 값, 경계값, 동시 접근)
 
-```markdown
-# Test Plan
-Generated by /plan-eng-review on {date}
-Branch: {branch}
-Repo: {owner/repo}
+LLM/프롬프트 변경: CLAUDE.md에서 "Prompt/LLM 변경" 파일 패턴을 확인합니다. 이 계획이 해당 패턴을 터치하면, 어떤 eval 스위트를 실행해야 하는지, 어떤 케이스를 추가해야 하는지, 어떤 기준선과 비교할지 명시합니다.
+**중지.** 이슈당 AskUserQuestion 하나. 배치하지 않습니다. 권고사항 + 이유. 이슈가 없거나 수정이 명확하면, 할 것을 말하고 계속 진행합니다 — 질문 낭비하지 않습니다. 사용자 응답까지 진행하지 않습니다.
 
-## Affected Pages/Routes
-- {URL path} — {what to test and why}
+### 섹션 4: 성능 검토
 
-## Key Interactions to Verify
-- {interaction description} on {page}
+평가:
+* N+1 쿼리. 모든 새 ActiveRecord 연관 순회에 대해: includes/preload가 있나?
+* 메모리 사용. 모든 새 데이터 구조에 대해: 프로덕션에서의 최대 크기는?
+* 데이터베이스 인덱스. 모든 새 쿼리에 대해: 인덱스가 있나?
+* 캐싱 기회. 모든 비싼 계산이나 외부 호출에 대해: 캐시해야 하나?
+* 백그라운드 잡 크기 조정. 모든 새 잡에 대해: 최악의 경우 페이로드, 런타임, 재시도 동작?
+* 느린 경로. 새 코드패스 중 상위 3개에서 가장 느린 것과 예상 p99 지연 시간.
+* 연결 풀 압박. 새 DB 연결, Redis 연결, HTTP 연결?
+**중지.** 이슈당 AskUserQuestion 하나. 배치하지 않습니다. 권고사항 + 이유. 이슈가 없거나 수정이 명확하면, 할 것을 말하고 계속 진행합니다 — 질문 낭비하지 않습니다. 사용자 응답까지 진행하지 않습니다.
 
-## Edge Cases
-- {edge case} on {page}
+---
 
-## Critical Paths
-- {end-to-end flow that must work}
+## CRITICAL 규칙 — 질문하는 방법
+모든 AskUserQuestion은 반드시: (1) 2-3개의 구체적인 문자 옵션 제시, (2) 권고하는 옵션을 FIRST에 명시, (3) 엔지니어링 선호도에 매핑하여 해당 옵션을 다른 것보다 선호하는 이유를 1-2문장으로 설명. 하나의 질문에 여러 이슈를 묶지 않습니다. 예/아니오 질문 없음. 개방형 질문은 개발자 의도, 아키텍처 방향, 12개월 목표, 또는 최종 사용자가 원하는 것에 대해 진정한 모호함이 있을 때만 허용됩니다 — 구체적으로 무엇이 모호한지 설명해야 합니다.
+
+## 찾은 각 이슈에 대해
+* **하나의 이슈 = 하나의 AskUserQuestion 호출.** 하나의 질문에 여러 이슈를 절대 결합하지 않습니다.
+* 파일과 줄 참조로 문제를 구체적으로 설명합니다.
+* "아무것도 안 하기"가 합리적인 경우를 포함하여 2-3개의 옵션을 제시합니다.
+* 각 옵션에 대해: 한 줄에 노력, 위험, 유지관리 부담.
+* **권고사항을 먼저.** 지시어로 말합니다: "B를 하세요. 이유:" — "옵션 B를 고려할 가치가 있을 수 있습니다"가 아닌. 의견을 제시합니다. 나는 메뉴가 아닌 당신의 판단에 값을 지불합니다.
+* **추론을 위의 엔지니어링 선호도에 매핑합니다.** 권고사항을 특정 선호도에 연결하는 한 문장.
+* **AskUserQuestion 형식:** "우리는 [LETTER] 권고합니다: [한 줄 이유]"로 시작한 후 모든 옵션을 `A) ... B) ... C) ...`로 나열합니다. 이슈 번호 + 옵션 문자로 레이블 지정 (예: "3A", "3B").
+* **탈출구:** 섹션에 이슈가 없으면, 그렇게 말하고 계속 진행합니다. 이슈에 진정한 대안 없이 명확한 수정이 있으면, 할 것을 말하고 계속 진행합니다 — 의미 있는 트레이드오프가 있는 진정한 결정이 있을 때만 AskUserQuestion을 사용합니다.
+
+## 필수 출력
+
+### "범위 외" 섹션
+고려되었지만 명시적으로 연기된 작업 목록, 각각 한 줄 이유.
+
+### "이미 존재하는 것" 섹션
+하위 문제를 부분적으로 해결하는 기존 코드/흐름 목록과 계획이 이를 재사용하는지.
+
+### TODOS.md 업데이트
+각 잠재적 TODO를 별도 AskUserQuestion으로 제시합니다. TODO를 절대 묶지 않습니다 — 질문당 하나. 이 단계를 절대 조용히 건너뛰지 않습니다.
+
+### 다이어그램 (필수, 해당하는 모든 것 생성)
+1. 시스템 아키텍처
+2. 데이터 흐름 (섀도 경로 포함)
+3. 상태 기계
+4. 에러 흐름
+
+### 오래된 다이어그램 감사
+이 계획이 터치하는 파일의 모든 ASCII 다이어그램 목록. 여전히 정확한가?
+
+### 완료 요약
+```
+  섹션 1 (아키텍처) | ___ 이슈 발견
+  섹션 2 (코드 품질) | ___ 이슈 발견
+  섹션 3 (테스트)   | 다이어그램 생성, ___ 갭
+  섹션 4 (성능)    | ___ 이슈 발견
+  -----------------------------------
+  범위 외           | 작성됨 (___ 항목)
+  이미 존재하는 것  | 작성됨
+  TODOS.md 업데이트 | ___ 항목 제안됨
+  다이어그램 생성   | ___ (유형 목록)
+  미해결 결정사항   | ___
 ```
 
-This file is consumed by `/qa` and `/qa-only` as primary test input. Include only the information that helps a QA tester know **what to test and where** — not implementation details.
-
-### 4. Performance review
-Evaluate:
-* N+1 queries and database access patterns.
-* Memory-usage concerns.
-* Caching opportunities.
-* Slow or high-complexity code paths.
-
-**STOP.** For each issue found in this section, call AskUserQuestion individually. One issue per call. Present options, state your recommendation, explain WHY. Do NOT batch multiple issues into one AskUserQuestion. Only proceed to the next section after ALL issues in this section are resolved.
-
-## CRITICAL RULE — How to ask questions
-Follow the AskUserQuestion format from the Preamble above. Additional rules for plan reviews:
-* **One issue = one AskUserQuestion call.** Never combine multiple issues into one question.
-* Describe the problem concretely, with file and line references.
-* Present 2-3 options, including "do nothing" where that's reasonable.
-* For each option, specify in one line: effort, risk, and maintenance burden.
-* **Map the reasoning to my engineering preferences above.** One sentence connecting your recommendation to a specific preference (DRY, explicit > clever, minimal diff, etc.).
-* Label with issue NUMBER + option LETTER (e.g., "3A", "3B").
-* **Escape hatch:** If a section has no issues, say so and move on. If an issue has an obvious fix with no real alternatives, state what you'll do and move on — don't waste a question on it. Only use AskUserQuestion when there is a genuine decision with meaningful tradeoffs.
-* **Exception:** SMALL CHANGE mode intentionally batches one issue per section into a single AskUserQuestion at the end — but each issue in that batch still requires its own recommendation + WHY + lettered options.
-
-## Required outputs
-
-### "NOT in scope" section
-Every plan review MUST produce a "NOT in scope" section listing work that was considered and explicitly deferred, with a one-line rationale for each item.
-
-### "What already exists" section
-List existing code/flows that already partially solve sub-problems in this plan, and whether the plan reuses them or unnecessarily rebuilds them.
-
-### TODOS.md updates
-After all review sections are complete, present each potential TODO as its own individual AskUserQuestion. Never batch TODOs — one per question. Never silently skip this step. Follow the format in `.claude/skills/review/TODOS-format.md`.
-
-For each TODO, describe:
-* **What:** One-line description of the work.
-* **Why:** The concrete problem it solves or value it unlocks.
-* **Pros:** What you gain by doing this work.
-* **Cons:** Cost, complexity, or risks of doing it.
-* **Context:** Enough detail that someone picking this up in 3 months understands the motivation, the current state, and where to start.
-* **Depends on / blocked by:** Any prerequisites or ordering constraints.
-
-Then present options: **A)** Add to TODOS.md **B)** Skip — not valuable enough **C)** Build it now in this PR instead of deferring.
-
-Do NOT just append vague bullet points. A TODO without context is worse than no TODO — it creates false confidence that the idea was captured while actually losing the reasoning.
-
-### Diagrams
-The plan itself should use ASCII diagrams for any non-trivial data flow, state machine, or processing pipeline. Additionally, identify which files in the implementation should get inline ASCII diagram comments — particularly Models with complex state transitions, Services with multi-step pipelines, and Concerns with non-obvious mixin behavior.
-
-### Failure modes
-For each new codepath identified in the test review diagram, list one realistic way it could fail in production (timeout, nil reference, race condition, stale data, etc.) and whether:
-1. A test covers that failure
-2. Error handling exists for it
-3. The user would see a clear error or a silent failure
-
-If any failure mode has no test AND no error handling AND would be silent, flag it as a **critical gap**.
-
-### Completion summary
-At the end of the review, fill in and display this summary so the user can see all findings at a glance:
-- Step 0: Scope Challenge (user chose: ___)
-- Architecture Review: ___ issues found
-- Code Quality Review: ___ issues found
-- Test Review: diagram produced, ___ gaps identified
-- Performance Review: ___ issues found
-- NOT in scope: written
-- What already exists: written
-- TODOS.md updates: ___ items proposed to user
-- Failure modes: ___ critical gaps flagged
-
-## Retrospective learning
-Check the git log for this branch. If there are prior commits suggesting a previous review cycle (e.g., review-driven refactors, reverted changes), note what was changed and whether the current plan touches the same areas. Be more aggressive reviewing areas that were previously problematic.
-
-## Formatting rules
-* NUMBER issues (1, 2, 3...) and LETTERS for options (A, B, C...).
-* Label with NUMBER + LETTER (e.g., "3A", "3B").
-* One sentence max per option. Pick in under 5 seconds.
-* After each review section, pause and ask for feedback before moving on.
-
-## Unresolved decisions
-If the user does not respond to an AskUserQuestion or interrupts to move on, note which decisions were left unresolved. At the end of the review, list these as "Unresolved decisions that may bite you later" — never silently default to an option.
+## 포맷 규칙
+* 이슈에 번호 매기기 (1, 2, 3...), 옵션에 문자 (A, B, C...).
+* 번호 + 문자로 레이블 지정 (예: "3A", "3B").
+* 권고 옵션을 항상 먼저 나열.
+* 옵션당 최대 한 문장.
+* 각 섹션 후 일시 중지하고 피드백 기다리기.
+* 스캔 가능성을 위해 **CRITICAL GAP** / **WARNING** / **OK** 사용.

@@ -1,78 +1,32 @@
 ---
 name: gstack-upgrade
-version: 1.1.0
+version: 1.0.0
 description: |
-  Upgrade gstack to the latest version. Detects global vs vendored install,
-  runs the upgrade, and shows what's new.
+  gstack을 최신 버전으로 업그레이드합니다. 글로벌 설치와 vendored 설치를
+  구분해 적절한 업그레이드 경로를 실행하고, 변경 사항 요약을 보여줍니다.
 allowed-tools:
   - Bash
   - Read
-  - Write
   - AskUserQuestion
 ---
-<!-- AUTO-GENERATED from SKILL.md.tmpl — do not edit directly -->
-<!-- Regenerate: bun run gen:skill-docs -->
 
 # /gstack-upgrade
 
-Upgrade gstack to the latest version and show what's new.
+gstack을 최신 버전으로 업그레이드하고 변경 사항을 안내합니다.
 
 ## Inline upgrade flow
 
-This section is referenced by all skill preambles when they detect `UPGRADE_AVAILABLE`.
+이 섹션은 모든 스킬 preamble에서 `UPGRADE_AVAILABLE`을 감지했을 때 참조됩니다.
 
-### Step 1: Ask the user (or auto-upgrade)
+### Step 1: 사용자에게 질문
 
-First, check if auto-upgrade is enabled:
-```bash
-_AUTO=""
-[ "${GSTACK_AUTO_UPGRADE:-}" = "1" ] && _AUTO="true"
-[ -z "$_AUTO" ] && _AUTO=$(~/.claude/skills/gstack/bin/gstack-config get auto_upgrade 2>/dev/null || true)
-echo "AUTO_UPGRADE=$_AUTO"
-```
+AskUserQuestion 사용:
+- Question: "gstack **v{new}**를 사용할 수 있습니다(현재 v{old}). 지금 업그레이드할까요? 약 10초 소요됩니다."
+- Options: ["네, 지금 업그레이드", "나중에 (내일 다시 묻기)"]
 
-**If `AUTO_UPGRADE=true` or `AUTO_UPGRADE=1`:** Skip AskUserQuestion. Log "Auto-upgrading gstack v{old} → v{new}..." and proceed directly to Step 2. If `./setup` fails during auto-upgrade, restore from backup (`.bak` directory) and warn the user: "Auto-upgrade failed — restored previous version. Run `/gstack-upgrade` manually to retry."
+**"나중에" 선택 시:** `touch ~/.gstack/last-update-check` 실행 후 현재 스킬을 계속 진행합니다. 업그레이드는 다시 언급하지 않습니다.
 
-**Otherwise**, use AskUserQuestion:
-- Question: "gstack **v{new}** is available (you're on v{old}). Upgrade now?"
-- Options: ["Yes, upgrade now", "Always keep me up to date", "Not now", "Never ask again"]
-
-**If "Yes, upgrade now":** Proceed to Step 2.
-
-**If "Always keep me up to date":**
-```bash
-~/.claude/skills/gstack/bin/gstack-config set auto_upgrade true
-```
-Tell user: "Auto-upgrade enabled. Future updates will install automatically." Then proceed to Step 2.
-
-**If "Not now":** Write snooze state with escalating backoff (first snooze = 24h, second = 48h, third+ = 1 week), then continue with the current skill. Do not mention the upgrade again.
-```bash
-_SNOOZE_FILE=~/.gstack/update-snoozed
-_REMOTE_VER="{new}"
-_CUR_LEVEL=0
-if [ -f "$_SNOOZE_FILE" ]; then
-  _SNOOZED_VER=$(awk '{print $1}' "$_SNOOZE_FILE")
-  if [ "$_SNOOZED_VER" = "$_REMOTE_VER" ]; then
-    _CUR_LEVEL=$(awk '{print $2}' "$_SNOOZE_FILE")
-    case "$_CUR_LEVEL" in *[!0-9]*) _CUR_LEVEL=0 ;; esac
-  fi
-fi
-_NEW_LEVEL=$((_CUR_LEVEL + 1))
-[ "$_NEW_LEVEL" -gt 3 ] && _NEW_LEVEL=3
-echo "$_REMOTE_VER $_NEW_LEVEL $(date +%s)" > "$_SNOOZE_FILE"
-```
-Note: `{new}` is the remote version from the `UPGRADE_AVAILABLE` output — substitute it from the update check result.
-
-Tell user the snooze duration: "Next reminder in 24h" (or 48h or 1 week, depending on level). Tip: "Set `auto_upgrade: true` in `~/.gstack/config.yaml` for automatic upgrades."
-
-**If "Never ask again":**
-```bash
-~/.claude/skills/gstack/bin/gstack-config set update_check false
-```
-Tell user: "Update checks disabled. Run `~/.claude/skills/gstack/bin/gstack-config set update_check true` to re-enable."
-Continue with the current skill.
-
-### Step 2: Detect install type
+### Step 2: 설치 타입 감지
 
 ```bash
 if [ -d "$HOME/.claude/skills/gstack/.git" ]; then
@@ -94,15 +48,15 @@ fi
 echo "Install type: $INSTALL_TYPE at $INSTALL_DIR"
 ```
 
-### Step 3: Save old version
+### Step 3: 이전 버전 저장
 
 ```bash
 OLD_VERSION=$(cat "$INSTALL_DIR/VERSION" 2>/dev/null || echo "unknown")
 ```
 
-### Step 4: Upgrade
+### Step 4: 업그레이드 실행
 
-**For git installs** (global-git, local-git):
+**git 설치(global-git, local-git):**
 ```bash
 cd "$INSTALL_DIR"
 STASH_OUTPUT=$(git stash 2>&1)
@@ -110,9 +64,9 @@ git fetch origin
 git reset --hard origin/main
 ./setup
 ```
-If `$STASH_OUTPUT` contains "Saved working directory", warn the user: "Note: local changes were stashed. Run `git stash pop` in the skill directory to restore them."
+`$STASH_OUTPUT`에 "Saved working directory"가 있으면 사용자에게 알립니다: "참고: 로컬 변경사항을 stash 했습니다. 복원하려면 스킬 디렉토리에서 `git stash pop`을 실행하세요."
 
-**For vendored installs** (vendored, vendored-global):
+**vendored 설치(vendored, vendored-global):**
 ```bash
 PARENT=$(dirname "$INSTALL_DIR")
 TMP_DIR=$(mktemp -d)
@@ -123,47 +77,19 @@ cd "$INSTALL_DIR" && ./setup
 rm -rf "$INSTALL_DIR.bak" "$TMP_DIR"
 ```
 
-### Step 4.5: Sync local vendored copy
-
-After upgrading the primary install, check if there's also a local copy in the current project that needs updating:
-
-```bash
-_ROOT=$(git rev-parse --show-toplevel 2>/dev/null)
-LOCAL_GSTACK=""
-if [ -n "$_ROOT" ] && [ -d "$_ROOT/.claude/skills/gstack" ]; then
-  _RESOLVED_LOCAL=$(cd "$_ROOT/.claude/skills/gstack" && pwd -P)
-  _RESOLVED_PRIMARY=$(cd "$INSTALL_DIR" && pwd -P)
-  if [ "$_RESOLVED_LOCAL" != "$_RESOLVED_PRIMARY" ]; then
-    LOCAL_GSTACK="$_ROOT/.claude/skills/gstack"
-  fi
-fi
-echo "LOCAL_GSTACK=$LOCAL_GSTACK"
-```
-
-If `LOCAL_GSTACK` is non-empty, update it by copying from the freshly-upgraded primary install (same approach as README vendored install):
-```bash
-mv "$LOCAL_GSTACK" "$LOCAL_GSTACK.bak"
-cp -Rf "$INSTALL_DIR" "$LOCAL_GSTACK"
-rm -rf "$LOCAL_GSTACK/.git"
-cd "$LOCAL_GSTACK" && ./setup
-rm -rf "$LOCAL_GSTACK.bak"
-```
-Tell user: "Also updated vendored copy at `$LOCAL_GSTACK` — commit `.claude/skills/gstack/` when you're ready."
-
-### Step 5: Write marker + clear cache
+### Step 5: 마커 기록 + 캐시 초기화
 
 ```bash
 mkdir -p ~/.gstack
 echo "$OLD_VERSION" > ~/.gstack/just-upgraded-from
 rm -f ~/.gstack/last-update-check
-rm -f ~/.gstack/update-snoozed
 ```
 
-### Step 6: Show What's New
+### Step 6: What's New 표시
 
-Read `$INSTALL_DIR/CHANGELOG.md`. Find all version entries between the old version and the new version. Summarize as 5-7 bullets grouped by theme. Don't overwhelm — focus on user-facing changes. Skip internal refactors unless they're significant.
+`$INSTALL_DIR/CHANGELOG.md`를 읽고 old→new 사이 버전 항목을 찾아, 테마별 5-7개 불릿으로 요약합니다. 사용자 체감 변경을 우선하고, 내부 리팩터링은 영향이 큰 경우만 포함합니다.
 
-Format:
+출력 형식:
 ```
 gstack v{new} — upgraded from v{old}!
 
@@ -175,12 +101,12 @@ What's new:
 Happy shipping!
 ```
 
-### Step 7: Continue
+### Step 7: 원래 스킬 계속
 
-After showing What's New, continue with whatever skill the user originally invoked. The upgrade is done — no further action needed.
+What's New를 보여준 뒤, 사용자가 원래 호출했던 스킬 흐름으로 복귀해 계속 진행합니다. 추가 액션은 필요 없습니다.
 
 ---
 
 ## Standalone usage
 
-When invoked directly as `/gstack-upgrade` (not from a preamble), follow Steps 2-6 above. If already on the latest version, tell the user: "You're already on the latest version (v{version})."
+`/gstack-upgrade`를 직접 호출했을 때(즉 preamble 경유가 아닐 때)는 위 Step 2-6을 실행합니다. 이미 최신 버전이면 사용자에게 이렇게 알립니다: "이미 최신 버전(v{version})입니다."
