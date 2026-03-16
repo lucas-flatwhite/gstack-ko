@@ -283,7 +283,8 @@ Inspection:     js <expr> | eval <file> | css <sel> <prop> | attrs <sel>
                 console [--clear|--errors] | network [--clear] | dialog [--clear]
                 cookies | storage [set <k> <v>] | perf
                 is <prop> <sel> (visible|hidden|enabled|disabled|checked|editable|focused)
-Visual:         screenshot [path] | pdf [path] | responsive [prefix]
+Visual:         screenshot [--viewport] [--clip x,y,w,h] [@ref|sel] [path]
+                pdf [path] | responsive [prefix]
 Snapshot:       snapshot [-i] [-c] [-d N] [-s sel] [-D] [-a] [-o path] [-C]
                 -D/--diff: diff against previous snapshot
                 -a/--annotate: annotated screenshot with ref labels

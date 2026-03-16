@@ -89,6 +89,51 @@ export function ensureStateDir(config: BrowseConfig): void {
     }
     throw err;
   }
+
+  // Ensure .gstack/ is in the project's .gitignore
+  const gitignorePath = path.join(config.projectDir, '.gitignore');
+  try {
+    const content = fs.readFileSync(gitignorePath, 'utf-8');
+    if (!content.match(/^\.gstack\/?$/m)) {
+      const separator = content.endsWith('\n') ? '' : '\n';
+      fs.appendFileSync(gitignorePath, `${separator}.gstack/\n`);
+    }
+  } catch (err: any) {
+    if (err.code !== 'ENOENT') {
+      // Write warning to server log (visible even in daemon mode)
+      const logPath = path.join(config.stateDir, 'browse-server.log');
+      try {
+        fs.appendFileSync(logPath, `[${new Date().toISOString()}] Warning: could not update .gitignore at ${gitignorePath}: ${err.message}\n`);
+      } catch {
+        // stateDir write failed too — nothing more we can do
+      }
+    }
+    // ENOENT (no .gitignore) — skip silently
+  }
+}
+
+/**
+ * Derive a slug from the git remote origin URL (owner-repo format).
+ * Falls back to the directory basename if no remote is configured.
+ */
+export function getRemoteSlug(): string {
+  try {
+    const proc = Bun.spawnSync(['git', 'remote', 'get-url', 'origin'], {
+      stdout: 'pipe',
+      stderr: 'pipe',
+      timeout: 2_000,
+    });
+    if (proc.exitCode !== 0) throw new Error('no remote');
+    const url = proc.stdout.toString().trim();
+    // SSH:   git@github.com:owner/repo.git → owner-repo
+    // HTTPS: https://github.com/owner/repo.git → owner-repo
+    const match = url.match(/[:/]([^/]+)\/([^/]+?)(?:\.git)?$/);
+    if (match) return `${match[1]}-${match[2]}`;
+    throw new Error('unparseable');
+  } catch {
+    const root = getGitRoot();
+    return path.basename(root || process.cwd());
+  }
 }
 
 /**

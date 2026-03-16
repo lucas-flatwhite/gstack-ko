@@ -57,7 +57,10 @@ if ! ensure_playwright_browser; then
   exit 1
 fi
 
-# 3. Only create skill symlinks if we're inside a .claude/skills directory
+# 3. Ensure ~/.gstack global state directory exists
+mkdir -p "$HOME/.gstack/projects"
+
+# 4. Only create skill symlinks if we're inside a .claude/skills directory
 SKILLS_BASENAME="$(basename "$SKILLS_DIR")"
 if [ "$SKILLS_BASENAME" = "skills" ]; then
   linked=()

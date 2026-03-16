@@ -1,79 +1,110 @@
-# QA 리포트: {앱_이름}
+# QA Report: {APP_NAME}
 
-| 항목 | 값 |
-|------|---|
-| **날짜** | {날짜} |
+| Field | Value |
+|-------|-------|
+| **Date** | {DATE} |
 | **URL** | {URL} |
-| **범위** | {범위 또는 "전체 앱"} |
-| **모드** | {full / quick / regression} |
-| **소요 시간** | {소요 시간} |
-| **방문한 페이지** | {수} |
-| **스크린샷** | {수} |
-| **프레임워크** | {감지됨 또는 "알 수 없음"} |
+| **Branch** | {BRANCH} |
+| **Commit** | {COMMIT_SHA} ({COMMIT_DATE}) |
+| **PR** | {PR_NUMBER} ({PR_URL}) or "—" |
+| **Tier** | Quick / Standard / Exhaustive |
+| **Scope** | {SCOPE or "Full app"} |
+| **Duration** | {DURATION} |
+| **Pages visited** | {COUNT} |
+| **Screenshots** | {COUNT} |
+| **Framework** | {DETECTED or "Unknown"} |
+| **Index** | [All QA runs](./index.md) |
 
-## 건강 점수: {점수}/100
+## Health Score: {SCORE}/100
 
-| 카테고리 | 점수 |
-|---------|------|
-| 콘솔 | {0-100} |
-| 링크 | {0-100} |
+| Category | Score |
+|----------|-------|
+| Console | {0-100} |
+| Links | {0-100} |
 | Visual | {0-100} |
 | Functional | {0-100} |
 | UX | {0-100} |
 | Performance | {0-100} |
 | Accessibility | {0-100} |
 
-## 수정해야 할 상위 3가지
+## Top 3 Things to Fix
 
-1. **{ISSUE-NNN}: {제목}** — {한 줄 설명}
-2. **{ISSUE-NNN}: {제목}** — {한 줄 설명}
-3. **{ISSUE-NNN}: {제목}** — {한 줄 설명}
+1. **{ISSUE-NNN}: {title}** — {one-line description}
+2. **{ISSUE-NNN}: {title}** — {one-line description}
+3. **{ISSUE-NNN}: {title}** — {one-line description}
 
-## 콘솔 건강
+## Console Health
 
-| 에러 | 횟수 | 처음 발견 |
-|------|------|---------|
-| {에러 메시지} | {N} | {URL} |
+| Error | Count | First seen |
+|-------|-------|------------|
+| {error message} | {N} | {URL} |
 
-## 요약
+## Summary
 
-| 심각도 | 수 |
-|--------|---|
+| Severity | Count |
+|----------|-------|
 | Critical | 0 |
 | High | 0 |
 | Medium | 0 |
 | Low | 0 |
-| **총계** | **0** |
+| **Total** | **0** |
 
-## 이슈
+## Issues
 
-### ISSUE-001: {짧은 제목}
+### ISSUE-001: {Short title}
 
-| 항목 | 값 |
-|------|---|
-| **심각도** | critical / high / medium / low |
-| **카테고리** | visual / functional / ux / content / performance / console / accessibility |
-| **URL** | {페이지 URL} |
+| Field | Value |
+|-------|-------|
+| **Severity** | critical / high / medium / low |
+| **Category** | visual / functional / ux / content / performance / console / accessibility |
+| **URL** | {page URL} |
 
-**설명:** {무엇이 잘못됐는지, 예상 vs 실제.}
+**Description:** {What is wrong, expected vs actual.}
 
-**재현 단계:**
+**Repro Steps:**
 
-1. {URL}로 이동
+1. Navigate to {URL}
    ![Step 1](screenshots/issue-001-step-1.png)
-2. {액션}
+2. {Action}
    ![Step 2](screenshots/issue-001-step-2.png)
-3. **확인:** {무엇이 잘못되나}
-   ![결과](screenshots/issue-001-result.png)
+3. **Observe:** {what goes wrong}
+   ![Result](screenshots/issue-001-result.png)
 
 ---
 
-## 회귀 (해당되는 경우)
+## Fixes Applied (if applicable)
 
-| 메트릭 | 기준선 | 현재 | 변화 |
-|--------|--------|------|------|
-| 건강 점수 | {N} | {N} | {+/-N} |
-| 이슈 | {N} | {N} | {+/-N} |
+| Issue | Fix Status | Commit | Files Changed |
+|-------|-----------|--------|---------------|
+| ISSUE-NNN | verified / best-effort / reverted / deferred | {SHA} | {files} |
 
-**기준선 이후 수정됨:** {목록}
-**기준선 이후 새로 생김:** {목록}
+### Before/After Evidence
+
+#### ISSUE-NNN: {title}
+**Before:** ![Before](screenshots/issue-NNN-before.png)
+**After:** ![After](screenshots/issue-NNN-after.png)
+
+---
+
+## Ship Readiness
+
+| Metric | Value |
+|--------|-------|
+| Health score | {before} → {after} ({delta}) |
+| Issues found | N |
+| Fixes applied | N (verified: X, best-effort: Y, reverted: Z) |
+| Deferred | N |
+
+**PR Summary:** "QA found N issues, fixed M, health score X → Y."
+
+---
+
+## Regression (if applicable)
+
+| Metric | Baseline | Current | Delta |
+|--------|----------|---------|-------|
+| Health score | {N} | {N} | {+/-N} |
+| Issues | {N} | {N} | {+/-N} |
+
+**Fixed since baseline:** {list}
+**New since baseline:** {list}

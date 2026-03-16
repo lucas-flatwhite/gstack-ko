@@ -1,28 +1,28 @@
-# Browser — 기술 세부사항
+# Browser — technical details
 
-이 문서는 gstack 헤드리스 브라우저의 커맨드 레퍼런스와 내부 구조를 다룹니다.
+This document covers the command reference and internals of gstack's headless browser.
 
-## 커맨드 레퍼런스
+## Command reference
 
-| 카테고리 | 커맨드 | 용도 |
-|----------|--------|------|
-| 탐색 | `goto`, `back`, `forward`, `reload`, `url` | 페이지 이동 |
-| 읽기 | `text`, `html`, `links`, `forms`, `accessibility` | 콘텐츠 추출 |
-| 스냅샷 | `snapshot [-i] [-c] [-d N] [-s sel] [-D] [-a] [-o] [-C]` | ref 얻기, diff, 주석 달기 |
-| 상호작용 | `click`, `fill`, `select`, `hover`, `type`, `press`, `scroll`, `wait`, `viewport`, `upload` | 페이지 사용 |
-| 검사 | `js`, `eval`, `css`, `attrs`, `is`, `console`, `network`, `dialog`, `cookies`, `storage`, `perf` | 디버그 및 검증 |
-| 시각 | `screenshot`, `pdf`, `responsive` | Claude가 보는 것 확인 |
-| 비교 | `diff <url1> <url2>` | 환경 간 차이점 발견 |
-| 다이얼로그 | `dialog-accept [text]`, `dialog-dismiss` | alert/confirm/prompt 처리 제어 |
-| 탭 | `tabs`, `tab`, `newtab`, `closetab` | 멀티 페이지 워크플로우 |
-| 쿠키 | `cookie-import`, `cookie-import-browser` | 파일 또는 실제 브라우저에서 쿠키 가져오기 |
-| 멀티 스텝 | `chain` (stdin에서 JSON) | 하나의 호출로 커맨드 배치 처리 |
+| Category | Commands | What for |
+|----------|----------|----------|
+| Navigate | `goto`, `back`, `forward`, `reload`, `url` | Get to a page |
+| Read | `text`, `html`, `links`, `forms`, `accessibility` | Extract content |
+| Snapshot | `snapshot [-i] [-c] [-d N] [-s sel] [-D] [-a] [-o] [-C]` | Get refs, diff, annotate |
+| Interact | `click`, `fill`, `select`, `hover`, `type`, `press`, `scroll`, `wait`, `viewport`, `upload` | Use the page |
+| Inspect | `js`, `eval`, `css`, `attrs`, `is`, `console`, `network`, `dialog`, `cookies`, `storage`, `perf` | Debug and verify |
+| Visual | `screenshot [--viewport] [--clip x,y,w,h] [sel\|@ref] [path]`, `pdf`, `responsive` | See what Claude sees |
+| Compare | `diff <url1> <url2>` | Spot differences between environments |
+| Dialogs | `dialog-accept [text]`, `dialog-dismiss` | Control alert/confirm/prompt handling |
+| Tabs | `tabs`, `tab`, `newtab`, `closetab` | Multi-page workflows |
+| Cookies | `cookie-import`, `cookie-import-browser` | Import cookies from file or real browser |
+| Multi-step | `chain` (JSON from stdin) | Batch commands in one call |
 
-모든 셀렉터 인수는 CSS 셀렉터, `snapshot` 후의 `@e` ref, 또는 `snapshot -C` 후의 `@c` ref를 허용합니다. 총 50+ 커맨드 및 쿠키 가져오기 기능.
+All selector arguments accept CSS selectors, `@e` refs after `snapshot`, or `@c` refs after `snapshot -C`. 50+ commands total plus cookie import.
 
-## 작동 방식
+## How it works
 
-gstack의 브라우저는 HTTP를 통해 지속적인 로컬 Chromium 데몬과 통신하는 컴파일된 CLI 바이너리입니다. CLI는 씬 클라이언트로 — 상태 파일을 읽고, 커맨드를 전송하고, 응답을 stdout으로 출력합니다. 실제 작업은 [Playwright](https://playwright.dev/)를 통해 서버가 수행합니다.
+gstack's browser is a compiled CLI binary that talks to a persistent local Chromium daemon over HTTP. The CLI is a thin client — it reads a state file, sends a command, and prints the response to stdout. The server does the real work via [Playwright](https://playwright.dev/).
 
 ```
 ┌─────────────────────────────────────────────────────────────────┐
@@ -33,154 +33,163 @@ gstack의 브라우저는 HTTP를 통해 지속적인 로컬 Chromium 데몬과 
 │       ▼                                                         │
 │  ┌──────────┐    HTTP POST     ┌──────────────┐                 │
 │  │ browse   │ ──────────────── │ Bun HTTP     │                 │
-│  │ CLI      │  localhost:9400  │ server       │                 │
+│  │ CLI      │  localhost:rand  │ server       │                 │
 │  │          │  Bearer token    │              │                 │
 │  │ compiled │ ◄──────────────  │  Playwright  │──── Chromium    │
 │  │ binary   │  plain text      │  API calls   │    (headless)   │
 │  └──────────┘                  └──────────────┘                 │
-│   ~1ms 시작                      지속적인 데몬                   │
-│                                 첫 번째 호출 시 자동 시작        │
-│                                 유휴 30분 후 자동 종료           │
+│   ~1ms startup                  persistent daemon               │
+│                                 auto-starts on first call       │
+│                                 auto-stops after 30 min idle    │
 └─────────────────────────────────────────────────────────────────┘
 ```
 
-### 라이프사이클
+### Lifecycle
 
-1. **첫 번째 호출**: CLI가 실행 중인 서버를 위해 `/tmp/browse-server.json`을 확인합니다. 없으면 백그라운드에서 `bun run browse/src/server.ts`를 생성합니다. 서버는 Playwright를 통해 헤드리스 Chromium을 실행하고, 포트(9400-9410)를 선택하고, bearer 토큰을 생성하고, 상태 파일을 작성하고, HTTP 요청을 받기 시작합니다. 약 3초가 소요됩니다.
+1. **First call**: CLI checks `.gstack/browse.json` (in the project root) for a running server. None found — it spawns `bun run browse/src/server.ts` in the background. The server launches headless Chromium via Playwright, picks a random port (10000-60000), generates a bearer token, writes the state file, and starts accepting HTTP requests. This takes ~3 seconds.
 
-2. **이후 호출**: CLI가 상태 파일을 읽고, bearer 토큰과 함께 HTTP POST를 전송하고, 응답을 출력합니다. 약 100-200ms 왕복.
+2. **Subsequent calls**: CLI reads the state file, sends an HTTP POST with the bearer token, prints the response. ~100-200ms round trip.
 
-3. **유휴 종료**: 30분간 커맨드가 없으면 서버가 종료되고 상태 파일을 정리합니다. 다음 호출 시 자동으로 재시작합니다.
+3. **Idle shutdown**: After 30 minutes with no commands, the server shuts down and cleans up the state file. Next call restarts it automatically.
 
-4. **충돌 복구**: Chromium이 충돌하면 서버가 즉시 종료합니다(자가 치유 없음 — 실패를 숨기지 않음). CLI는 다음 호출 시 죽은 서버를 감지하고 새로 시작합니다.
+4. **Crash recovery**: If Chromium crashes, the server exits immediately (no self-healing — don't hide failure). The CLI detects the dead server on the next call and starts a fresh one.
 
-### 주요 컴포넌트
+### Key components
 
 ```
 browse/
 ├── src/
-│   ├── cli.ts              # 씬 클라이언트 — 상태 파일 읽기, HTTP 전송, 응답 출력
-│   ├── server.ts           # Bun.serve HTTP 서버 — 커맨드를 Playwright로 라우팅
-│   ├── browser-manager.ts  # Chromium 라이프사이클 — 시작, 탭, ref 맵, 충돌 처리
-│   ├── snapshot.ts         # 접근성 트리 → @ref 할당 → Locator 맵 + diff/annotate/-C
-│   ├── read-commands.ts    # 비변형 커맨드 (text, html, links, js, css, is, dialog 등)
-│   ├── write-commands.ts   # 변형 커맨드 (click, fill, select, upload, dialog-accept 등)
-│   ├── meta-commands.ts    # 서버 관리, chain, diff, snapshot 라우팅
-│   ├── cookie-import-browser.ts  # macOS 키체인 + PBKDF2/AES-128-CBC로 Chromium 쿠키 복호화 및 가져오기
-│   ├── cookie-picker-routes.ts   # /cookie-picker/* HTTP 라우트
-│   ├── cookie-picker-ui.ts       # 대화형 쿠키 선택기 자체 포함 HTML 생성기
-│   └── buffers.ts          # CircularBuffer<T> + 콘솔/네트워크/다이얼로그 캡처 및 비동기 디스크 플러시
-├── test/                   # 통합 테스트 + HTML 픽스처
+│   ├── cli.ts              # Thin client — reads state file, sends HTTP, prints response
+│   ├── server.ts           # Bun.serve HTTP server — routes commands to Playwright
+│   ├── browser-manager.ts  # Chromium lifecycle — launch, tabs, ref map, crash handling
+│   ├── snapshot.ts         # Accessibility tree → @ref assignment → Locator map + diff/annotate/-C
+│   ├── read-commands.ts    # Non-mutating commands (text, html, links, js, css, is, dialog, etc.)
+│   ├── write-commands.ts   # Mutating commands (click, fill, select, upload, dialog-accept, etc.)
+│   ├── meta-commands.ts    # Server management, chain, diff, snapshot routing
+│   ├── cookie-import-browser.ts  # Decrypt + import cookies from real Chromium browsers
+│   ├── cookie-picker-routes.ts   # HTTP routes for interactive cookie picker UI
+│   ├── cookie-picker-ui.ts       # Self-contained HTML/CSS/JS for cookie picker
+│   └── buffers.ts          # CircularBuffer<T> + console/network/dialog capture
+├── test/                   # Integration tests + HTML fixtures
 └── dist/
-    └── browse              # 컴파일된 바이너리 (~58MB, Bun --compile)
+    └── browse              # Compiled binary (~58MB, Bun --compile)
 ```
 
-### 스냅샷 시스템
+### The snapshot system
 
-브라우저의 핵심 혁신은 Playwright의 접근성 트리 API를 기반으로 구축된 ref 기반 요소 선택입니다:
+The browser's key innovation is ref-based element selection, built on Playwright's accessibility tree API:
 
-1. `page.locator(scope).ariaSnapshot()`이 YAML과 유사한 접근성 트리를 반환합니다
-2. 스냅샷 파서가 각 요소에 ref(`@e1`, `@e2`, ...)를 할당합니다
-3. 각 ref에 대해 Playwright `Locator`를 빌드합니다 (`getByRole` + nth-child 사용)
-4. ref-to-Locator 맵이 `BrowserManager`에 저장됩니다
-5. `click @e3`과 같은 이후 커맨드는 Locator를 조회하고 `locator.click()`을 호출합니다
+1. `page.locator(scope).ariaSnapshot()` returns a YAML-like accessibility tree
+2. The snapshot parser assigns refs (`@e1`, `@e2`, ...) to each element
+3. For each ref, it builds a Playwright `Locator` (using `getByRole` + nth-child)
+4. The ref-to-Locator map is stored on `BrowserManager`
+5. Later commands like `click @e3` look up the Locator and call `locator.click()`
 
-DOM 변형 없음. 주입된 스크립트 없음. Playwright의 네이티브 접근성 API만 사용.
+No DOM mutation. No injected scripts. Just Playwright's native accessibility API.
 
-**확장 스냅샷 기능:**
-- `--diff` (`-D`): 각 스냅샷을 기준선으로 저장합니다. 다음 `-D` 호출 시 변경된 내용을 보여주는 unified diff를 반환합니다. 액션(클릭, 채우기 등)이 실제로 동작했는지 확인하는 데 사용합니다.
-- `--annotate` (`-a`): 각 ref의 경계 상자에 임시 오버레이 div를 삽입하고, ref 레이블이 보이는 스크린샷을 찍은 후 오버레이를 제거합니다. 출력 경로 제어를 위해 `-o <path>`를 사용합니다.
-- `--cursor-interactive` (`-C`): `page.evaluate`를 사용하여 비 ARIA 대화형 요소(div with `cursor:pointer`, `onclick`, `tabindex>=0`)를 스캔합니다. 결정론적 `nth-child` CSS 셀렉터로 `@c1`, `@c2`... ref를 할당합니다. ARIA 트리가 놓치지만 사용자가 클릭할 수 있는 요소들입니다.
+**Ref staleness detection:** SPAs can mutate the DOM without navigation (React router, tab switches, modals). When this happens, refs collected from a previous `snapshot` may point to elements that no longer exist. To handle this, `resolveRef()` runs an async `count()` check before using any ref — if the element count is 0, it throws immediately with a message telling the agent to re-run `snapshot`. This fails fast (~5ms) instead of waiting for Playwright's 30-second action timeout.
 
-### 인증
+**Extended snapshot features:**
+- `--diff` (`-D`): Stores each snapshot as a baseline. On the next `-D` call, returns a unified diff showing what changed. Use this to verify that an action (click, fill, etc.) actually worked.
+- `--annotate` (`-a`): Injects temporary overlay divs at each ref's bounding box, takes a screenshot with ref labels visible, then removes the overlays. Use `-o <path>` to control the output path.
+- `--cursor-interactive` (`-C`): Scans for non-ARIA interactive elements (divs with `cursor:pointer`, `onclick`, `tabindex>=0`) using `page.evaluate`. Assigns `@c1`, `@c2`... refs with deterministic `nth-child` CSS selectors. These are elements the ARIA tree misses but users can still click.
 
-각 서버 세션은 bearer 토큰으로 랜덤 UUID를 생성합니다. 토큰은 chmod 600으로 상태 파일(`/tmp/browse-server.json`)에 기록됩니다. 모든 HTTP 요청에 `Authorization: Bearer <token>`을 포함해야 합니다. 이로 인해 머신의 다른 프로세스가 브라우저를 제어하는 것을 방지합니다.
+### Screenshot modes
 
-### 콘솔, 네트워크, 다이얼로그 캡처
+The `screenshot` command supports four modes:
 
-서버는 Playwright의 `page.on('console')`, `page.on('response')`, `page.on('dialog')` 이벤트에 훅을 걸습니다. 모든 항목은 O(1) 원형 버퍼(각 50,000 용량)에 유지되고 `Bun.write()`를 통해 디스크에 비동기로 플러시됩니다:
+| Mode | Syntax | Playwright API |
+|------|--------|----------------|
+| Full page (default) | `screenshot [path]` | `page.screenshot({ fullPage: true })` |
+| Viewport only | `screenshot --viewport [path]` | `page.screenshot({ fullPage: false })` |
+| Element crop | `screenshot "#sel" [path]` or `screenshot @e3 [path]` | `locator.screenshot()` |
+| Region clip | `screenshot --clip x,y,w,h [path]` | `page.screenshot({ clip })` |
 
-- 콘솔: `/tmp/browse-console.log`
-- 네트워크: `/tmp/browse-network.log`
-- 다이얼로그: `/tmp/browse-dialog.log`
+Element crop accepts CSS selectors (`.class`, `#id`, `[attr]`) or `@e`/`@c` refs from `snapshot`. Auto-detection: `@e`/`@c` prefix = ref, `.`/`#`/`[` prefix = CSS selector, `--` prefix = flag, everything else = output path.
 
-`console`, `network`, `dialog` 커맨드는 디스크가 아닌 인메모리 버퍼에서 읽습니다.
+Mutual exclusion: `--clip` + selector and `--viewport` + `--clip` both throw errors. Unknown flags (e.g. `--bogus`) also throw.
 
-### 다이얼로그 처리
+### Authentication
 
-다이얼로그(alert, confirm, prompt)는 브라우저 잠금을 방지하기 위해 기본적으로 자동 수락됩니다. `dialog-accept`와 `dialog-dismiss` 커맨드로 이 동작을 제어합니다. 프롬프트의 경우 `dialog-accept <text>`가 응답 텍스트를 제공합니다. 모든 다이얼로그는 유형, 메시지, 취해진 액션과 함께 다이얼로그 버퍼에 기록됩니다.
+Each server session generates a random UUID as a bearer token. The token is written to the state file (`.gstack/browse.json`) with chmod 600. Every HTTP request must include `Authorization: Bearer <token>`. This prevents other processes on the machine from controlling the browser.
 
-### 멀티 작업공간 지원
+### Console, network, and dialog capture
 
-각 작업공간은 자체 Chromium 프로세스, 탭, 쿠키, 로그를 갖는 격리된 브라우저 인스턴스를 받습니다.
+The server hooks into Playwright's `page.on('console')`, `page.on('response')`, and `page.on('dialog')` events. All entries are kept in O(1) circular buffers (50,000 capacity each) and flushed to disk asynchronously via `Bun.write()`:
 
-`CONDUCTOR_PORT`가 설정된 경우 (예: [Conductor](https://conductor.dev)에 의해), browse 포트는 결정론적으로 파생됩니다:
+- Console: `.gstack/browse-console.log`
+- Network: `.gstack/browse-network.log`
+- Dialog: `.gstack/browse-dialog.log`
 
-```
-browse_port = CONDUCTOR_PORT - 45600
-```
+The `console`, `network`, and `dialog` commands read from the in-memory buffers, not disk.
 
-| 작업공간 | CONDUCTOR_PORT | Browse 포트 | 상태 파일 |
-|---------|---------------|-------------|----------|
-| 작업공간 A | 55040 | 9440 | `/tmp/browse-server-9440.json` |
-| 작업공간 B | 55041 | 9441 | `/tmp/browse-server-9441.json` |
-| Conductor 없음 | — | 9400 (스캔) | `/tmp/browse-server.json` |
+### Dialog handling
 
-`BROWSE_PORT`를 직접 설정할 수도 있습니다.
+Dialogs (alert, confirm, prompt) are auto-accepted by default to prevent browser lockup. The `dialog-accept` and `dialog-dismiss` commands control this behavior. For prompts, `dialog-accept <text>` provides the response text. All dialogs are logged to the dialog buffer with type, message, and action taken.
 
-### 환경 변수
+### Multi-workspace support
 
-| 변수 | 기본값 | 설명 |
-|------|--------|------|
-| `BROWSE_PORT` | 0 (자동 스캔 9400-9410) | HTTP 서버 고정 포트 |
-| `CONDUCTOR_PORT` | — | 설정 시 browse 포트 = 이 값 - 45600 |
-| `BROWSE_IDLE_TIMEOUT` | 1800000 (30분) | 유휴 종료 타임아웃 (밀리초) |
-| `BROWSE_STATE_FILE` | `/tmp/browse-server.json` | 상태 파일 경로 |
-| `BROWSE_SERVER_SCRIPT` | 자동 감지 | server.ts 경로 |
+Each workspace gets its own isolated browser instance with its own Chromium process, tabs, cookies, and logs. State is stored in `.gstack/` inside the project root (detected via `git rev-parse --show-toplevel`).
 
-### 성능
+| Workspace | State file | Port |
+|-----------|------------|------|
+| `/code/project-a` | `/code/project-a/.gstack/browse.json` | random (10000-60000) |
+| `/code/project-b` | `/code/project-b/.gstack/browse.json` | random (10000-60000) |
 
-| 도구 | 첫 번째 호출 | 이후 호출 | 호출당 컨텍스트 오버헤드 |
-|------|------------|----------|----------------------|
-| Chrome MCP | ~5s | ~2-5s | ~2000 토큰 (스키마 + 프로토콜) |
-| Playwright MCP | ~3s | ~1-3s | ~1500 토큰 (스키마 + 프로토콜) |
-| **gstack browse** | **~3s** | **~100-200ms** | **0 토큰** (plain text stdout) |
+No port collisions. No shared state. Each project is fully isolated.
 
-컨텍스트 오버헤드 차이는 빠르게 누적됩니다. 20개 커맨드 브라우저 세션에서 MCP 도구는 프로토콜 프레이밍만으로 30,000-40,000 토큰을 소비합니다. gstack은 0입니다.
+### Environment variables
 
-### MCP 대신 CLI를 사용하는 이유?
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `BROWSE_PORT` | 0 (random 10000-60000) | Fixed port for the HTTP server (debug override) |
+| `BROWSE_IDLE_TIMEOUT` | 1800000 (30 min) | Idle shutdown timeout in ms |
+| `BROWSE_STATE_FILE` | `.gstack/browse.json` | Path to state file (CLI passes to server) |
+| `BROWSE_SERVER_SCRIPT` | auto-detected | Path to server.ts |
 
-MCP(Model Context Protocol)는 원격 서비스에 잘 작동하지만, 로컬 브라우저 자동화에는 순수한 오버헤드만 추가합니다:
+### Performance
 
-- **컨텍스트 팽창**: 모든 MCP 호출에 전체 JSON 스키마와 프로토콜 프레이밍이 포함됩니다. "페이지 텍스트 가져오기" 같은 간단한 작업이 필요 이상으로 10배 더 많은 컨텍스트 토큰을 소비합니다.
-- **연결 취약성**: 지속적인 WebSocket/stdio 연결이 끊기고 재연결에 실패합니다.
-- **불필요한 추상화**: Claude Code에는 이미 Bash 도구가 있습니다. stdout으로 출력하는 CLI가 가장 간단한 인터페이스입니다.
+| Tool | First call | Subsequent calls | Context overhead per call |
+|------|-----------|-----------------|--------------------------|
+| Chrome MCP | ~5s | ~2-5s | ~2000 tokens (schema + protocol) |
+| Playwright MCP | ~3s | ~1-3s | ~1500 tokens (schema + protocol) |
+| **gstack browse** | **~3s** | **~100-200ms** | **0 tokens** (plain text stdout) |
 
-gstack은 이 모든 것을 건너뜁니다. 컴파일된 바이너리. 일반 텍스트 입력, 일반 텍스트 출력. 프로토콜 없음. 스키마 없음. 연결 관리 없음.
+The context overhead difference compounds fast. In a 20-command browser session, MCP tools burn 30,000-40,000 tokens on protocol framing alone. gstack burns zero.
 
-## 감사의 말
+### Why CLI over MCP?
 
-브라우저 자동화 레이어는 Microsoft의 [Playwright](https://playwright.dev/)를 기반으로 구축되었습니다. Playwright의 접근성 트리 API, locator 시스템, 헤드리스 Chromium 관리가 ref 기반 상호작용을 가능하게 합니다. 접근성 트리 노드에 `@ref` 레이블을 할당하고 Playwright Locator로 다시 매핑하는 스냅샷 시스템은 Playwright의 기본 요소 위에 완전히 구축되었습니다. Playwright 팀에 감사드립니다.
+MCP (Model Context Protocol) works well for remote services, but for local browser automation it adds pure overhead:
 
-## 개발
+- **Context bloat**: every MCP call includes full JSON schemas and protocol framing. A simple "get the page text" costs 10x more context tokens than it should.
+- **Connection fragility**: persistent WebSocket/stdio connections drop and fail to reconnect.
+- **Unnecessary abstraction**: Claude Code already has a Bash tool. A CLI that prints to stdout is the simplest possible interface.
 
-### 사전 요구사항
+gstack skips all of this. Compiled binary. Plain text in, plain text out. No protocol. No schema. No connection management.
+
+## Acknowledgments
+
+The browser automation layer is built on [Playwright](https://playwright.dev/) by Microsoft. Playwright's accessibility tree API, locator system, and headless Chromium management are what make ref-based interaction possible. The snapshot system — assigning `@ref` labels to accessibility tree nodes and mapping them back to Playwright Locators — is built entirely on top of Playwright's primitives. Thank you to the Playwright team for building such a solid foundation.
+
+## Development
+
+### Prerequisites
 
 - [Bun](https://bun.sh/) v1.0+
-- Playwright의 Chromium (`bun install`로 자동 설치)
+- Playwright's Chromium (installed automatically by `bun install`)
 
-### 빠른 시작
+### Quick start
 
 ```bash
-bun install              # 의존성 + Playwright Chromium 설치
-bun test                 # 통합 테스트 실행 (~3s)
-bun run dev <cmd>        # 소스에서 CLI 실행 (컴파일 없음)
-bun run build            # browse/dist/browse로 컴파일
+bun install              # install dependencies + Playwright Chromium
+bun test                 # run integration tests (~3s)
+bun run dev <cmd>        # run CLI from source (no compile)
+bun run build            # compile to browse/dist/browse
 ```
 
-### 개발 모드 vs 컴파일된 바이너리
+### Dev mode vs compiled binary
 
-개발 중에는 컴파일된 바이너리 대신 `bun run dev`를 사용하세요. Bun으로 `browse/src/cli.ts`를 직접 실행하므로 컴파일 단계 없이 즉각적인 피드백을 얻을 수 있습니다:
+During development, use `bun run dev` instead of the compiled binary. It runs `browse/src/cli.ts` directly with Bun, so you get instant feedback without a compile step:
 
 ```bash
 bun run dev goto https://example.com
@@ -189,49 +198,49 @@ bun run dev snapshot -i
 bun run dev click @e3
 ```
 
-컴파일된 바이너리(`bun run build`)는 배포용으로만 필요합니다. Bun의 `--compile` 플래그를 사용하여 `browse/dist/browse`에 단일 ~58MB 실행 파일을 생성합니다.
+The compiled binary (`bun run build`) is only needed for distribution. It produces a single ~58MB executable at `browse/dist/browse` using Bun's `--compile` flag.
 
-### 테스트 실행
+### Running tests
 
 ```bash
-bun test                         # 모든 테스트 실행
-bun test browse/test/commands              # 커맨드 통합 테스트만 실행
-bun test browse/test/snapshot              # 스냅샷 테스트만 실행
-bun test browse/test/cookie-import-browser # 쿠키 가져오기 단위 테스트만 실행
+bun test                         # run all tests
+bun test browse/test/commands              # run command integration tests only
+bun test browse/test/snapshot              # run snapshot tests only
+bun test browse/test/cookie-import-browser # run cookie import unit tests only
 ```
 
-테스트는 로컬 HTTP 서버(`browse/test/test-server.ts`)를 실행하여 `browse/test/fixtures/`의 HTML 픽스처를 제공하고, 해당 페이지들에 대해 CLI 커맨드를 실행합니다. 3개 파일에 걸쳐 203개 테스트, 총 약 15초.
+Tests spin up a local HTTP server (`browse/test/test-server.ts`) serving HTML fixtures from `browse/test/fixtures/`, then exercise the CLI commands against those pages. 203 tests across 3 files, ~15 seconds total.
 
-### 소스 맵
+### Source map
 
-| 파일 | 역할 |
+| File | Role |
 |------|------|
-| `browse/src/cli.ts` | 진입점. `/tmp/browse-server.json` 읽기, 서버에 HTTP 전송, 응답 출력. |
-| `browse/src/server.ts` | Bun HTTP 서버. 커맨드를 올바른 핸들러로 라우팅. 유휴 타임아웃 관리. |
-| `browse/src/browser-manager.ts` | Chromium 라이프사이클 — 시작, 탭 관리, ref 맵, 충돌 감지. |
-| `browse/src/snapshot.ts` | 접근성 트리 파싱, `@e`/`@c` ref 할당, Locator 맵 빌드. `--diff`, `--annotate`, `-C` 처리. |
-| `browse/src/read-commands.ts` | 비변형 커맨드: `text`, `html`, `links`, `js`, `css`, `is`, `dialog`, `forms` 등. `getCleanText()` 내보내기. |
-| `browse/src/write-commands.ts` | 변형 커맨드: `goto`, `click`, `fill`, `upload`, `dialog-accept`, `useragent` (컨텍스트 재생성 포함) 등. |
-| `browse/src/meta-commands.ts` | 서버 관리, chain 라우팅, diff (DRY via `getCleanText`), snapshot 위임. |
-| `browse/src/cookie-import-browser.ts` | macOS 키체인 + PBKDF2/AES-128-CBC를 통한 Chromium 쿠키 복호화. 설치된 브라우저 자동 감지. |
-| `browse/src/cookie-picker-routes.ts` | `/cookie-picker/*` HTTP 라우트 — 브라우저 목록, 도메인 검색, 가져오기, 제거. |
-| `browse/src/cookie-picker-ui.ts` | 대화형 쿠키 선택기를 위한 자체 포함 HTML 생성기 (다크 테마, 프레임워크 없음). |
-| `browse/src/buffers.ts` | `CircularBuffer<T>` (O(1) 링 버퍼) + 비동기 디스크 플러시를 통한 콘솔/네트워크/다이얼로그 캡처. |
+| `browse/src/cli.ts` | Entry point. Reads `.gstack/browse.json`, sends HTTP to the server, prints response. |
+| `browse/src/server.ts` | Bun HTTP server. Routes commands to the right handler. Manages idle timeout. |
+| `browse/src/browser-manager.ts` | Chromium lifecycle — launch, tab management, ref map, crash detection. |
+| `browse/src/snapshot.ts` | Parses accessibility tree, assigns `@e`/`@c` refs, builds Locator map. Handles `--diff`, `--annotate`, `-C`. |
+| `browse/src/read-commands.ts` | Non-mutating commands: `text`, `html`, `links`, `js`, `css`, `is`, `dialog`, `forms`, etc. Exports `getCleanText()`. |
+| `browse/src/write-commands.ts` | Mutating commands: `goto`, `click`, `fill`, `upload`, `dialog-accept`, `useragent` (with context recreation), etc. |
+| `browse/src/meta-commands.ts` | Server management, chain routing, diff (DRY via `getCleanText`), snapshot delegation. |
+| `browse/src/cookie-import-browser.ts` | Decrypt Chromium cookies via macOS Keychain + PBKDF2/AES-128-CBC. Auto-detects installed browsers. |
+| `browse/src/cookie-picker-routes.ts` | HTTP routes for `/cookie-picker/*` — browser list, domain search, import, remove. |
+| `browse/src/cookie-picker-ui.ts` | Self-contained HTML generator for the interactive cookie picker (dark theme, no frameworks). |
+| `browse/src/buffers.ts` | `CircularBuffer<T>` (O(1) ring buffer) + console/network/dialog capture with async disk flush. |
 
-### 활성 스킬에 배포
+### Deploying to the active skill
 
-활성 스킬은 `~/.claude/skills/gstack/`에 있습니다. 변경 후:
+The active skill lives at `~/.claude/skills/gstack/`. After making changes:
 
-1. 브랜치 푸시
-2. 스킬 디렉토리에서 풀: `cd ~/.claude/skills/gstack && git pull`
-3. 재빌드: `cd ~/.claude/skills/gstack && bun run build`
+1. Push your branch
+2. Pull in the skill directory: `cd ~/.claude/skills/gstack && git pull`
+3. Rebuild: `cd ~/.claude/skills/gstack && bun run build`
 
-또는 바이너리를 직접 복사: `cp browse/dist/browse ~/.claude/skills/gstack/browse/dist/browse`
+Or copy the binary directly: `cp browse/dist/browse ~/.claude/skills/gstack/browse/dist/browse`
 
-### 새 커맨드 추가
+### Adding a new command
 
-1. `read-commands.ts` (비변형) 또는 `write-commands.ts` (변형)에 핸들러 추가
-2. `server.ts`에 라우트 등록
-3. 필요한 경우 HTML 픽스처와 함께 `browse/test/commands.test.ts`에 테스트 케이스 추가
-4. `bun test`로 검증
-5. `bun run build`로 컴파일
+1. Add the handler in `read-commands.ts` (non-mutating) or `write-commands.ts` (mutating)
+2. Register the route in `server.ts`
+3. Add a test case in `browse/test/commands.test.ts` with an HTML fixture if needed
+4. Run `bun test` to verify
+5. Run `bun run build` to compile

@@ -1,48 +1,117 @@
 ---
 name: qa
-version: 1.0.0
+version: 2.0.0
 description: |
-  웹 애플리케이션을 체계적으로 QA 테스트합니다. "qa", "QA", "이 사이트 테스트",
-  "버그 찾기", "도그푸딩", 또는 품질 검토 요청 시 사용합니다. 네 가지 모드:
-  diff-aware (기능 브랜치에서 git diff 기반 자동 타깃팅), full (체계적 탐험),
-  quick (30초 스모크 테스트), regression (기준선 대비 비교).
-  건강 점수, 스크린샷, 재현 단계를 갖춘 구조화된 리포트를 생성합니다.
+  Systematically QA test a web application and fix bugs found. Runs QA testing,
+  then iteratively fixes bugs in source code, committing each fix atomically and
+  re-verifying. Use when asked to "qa", "QA", "test this site", "find bugs",
+  "test and fix", or "fix what's broken". Three tiers: Quick (critical/high only),
+  Standard (+ medium), Exhaustive (+ cosmetic). Produces before/after health scores,
+  fix evidence, and a ship-readiness summary. For report-only mode, use /qa-only.
 allowed-tools:
   - Bash
   - Read
   - Write
+  - Edit
+  - Glob
+  - Grep
   - AskUserQuestion
 ---
+<!-- AUTO-GENERATED from SKILL.md.tmpl — do not edit directly -->
+<!-- Regenerate: bun run gen:skill-docs -->
 
-## Update Check (먼저 실행)
+## Preamble (run first)
 
 ```bash
 _UPD=$(~/.claude/skills/gstack/bin/gstack-update-check 2>/dev/null || .claude/skills/gstack/bin/gstack-update-check 2>/dev/null || true)
 [ -n "$_UPD" ] && echo "$_UPD" || true
+mkdir -p ~/.gstack/sessions
+touch ~/.gstack/sessions/"$PPID"
+_SESSIONS=$(find ~/.gstack/sessions -mmin -120 -type f 2>/dev/null | wc -l | tr -d ' ')
+find ~/.gstack/sessions -mmin +120 -type f -delete 2>/dev/null || true
+_CONTRIB=$(~/.claude/skills/gstack/bin/gstack-config get gstack_contributor 2>/dev/null || true)
 ```
 
-출력이 `UPGRADE_AVAILABLE <old> <new>`이면 `~/.claude/skills/gstack/gstack-upgrade/SKILL.md`를 읽고 "Inline upgrade flow"를 따릅니다.
-`JUST_UPGRADED <from> <to>`이면 현재 버전을 사용자에게 알리고 계속합니다.
+If output shows `UPGRADE_AVAILABLE <old> <new>`: read `~/.claude/skills/gstack/gstack-upgrade/SKILL.md` and follow the "Inline upgrade flow" (auto-upgrade if configured, otherwise AskUserQuestion with 4 options, write snooze state if declined). If `JUST_UPGRADED <from> <to>`: tell user "Running gstack v{to} (just updated!)" and continue.
 
-# /qa: 체계적인 QA 테스트
+## AskUserQuestion Format
 
-당신은 QA 엔지니어입니다. 실제 사용자처럼 웹 애플리케이션을 테스트합니다 — 모든 것을 클릭하고, 모든 폼을 채우고, 모든 상태를 확인합니다. 증거와 함께 구조화된 리포트를 생성합니다.
+**ALWAYS follow this structure for every AskUserQuestion call:**
+1. Context: project name, current branch, what we're working on (1-2 sentences)
+2. The specific question or decision point
+3. `RECOMMENDATION: Choose [X] because [one-line reason]`
+4. Lettered options: `A) ... B) ... C) ...`
 
-## 설정
+If `_SESSIONS` is 3 or more: the user is juggling multiple gstack sessions and context-switching heavily. **ELI16 mode** — they may not remember what this conversation is about. Every AskUserQuestion MUST re-ground them: state the project, the branch, the current plan/task, then the specific problem, THEN the recommendation and options. Be extra clear and self-contained — assume they haven't looked at this window in 20 minutes.
 
-**사용자 요청에서 다음 파라미터를 파싱합니다:**
+Per-skill instructions may add additional formatting rules on top of this baseline.
 
-| 파라미터 | 기본값 | 오버라이드 예시 |
-|---------|--------|--------------|
-| 대상 URL | (자동 감지 또는 필수) | `https://myapp.com`, `http://localhost:3000` |
-| 모드 | full | `--quick`, `--regression .gstack/qa-reports/baseline.json` |
-| 출력 디렉토리 | `.gstack/qa-reports/` | `Output to /tmp/qa` |
-| 범위 | 전체 앱(또는 diff 범위) | `결제 페이지에 집중` |
-| 인증 | 없음 | `user@example.com으로 로그인`, `cookies.json에서 쿠키 가져오기` |
+## Contributor Mode
 
-**URL 없이 기능 브랜치에서 `/qa`를 실행하면 자동으로 diff-aware 모드에 진입합니다.**
+If `_CONTRIB` is `true`: you are in **contributor mode**. When you hit friction with **gstack itself** (not the user's app), file a field report. Think: "hey, I was trying to do X with gstack and it didn't work / was confusing / was annoying. Here's what happened."
 
-## SETUP (browse 커맨드 전에 반드시 실행)
+**gstack issues:** browse command fails/wrong output, snapshot missing elements, skill instructions unclear or misleading, binary crash/hang, unhelpful error message, any rough edge or annoyance — even minor stuff.
+**NOT gstack issues:** user's app bugs, network errors to user's URL, auth failures on user's site.
+
+**To file:** write `~/.gstack/contributor-logs/{slug}.md` with this structure:
+
+```
+# {Title}
+
+Hey gstack team — ran into this while using /{skill-name}:
+
+**What I was trying to do:** {what the user/agent was attempting}
+**What happened instead:** {what actually happened}
+**How annoying (1-5):** {1=meh, 3=friction, 5=blocker}
+
+## Steps to reproduce
+1. {step}
+
+## Raw output
+(wrap any error messages or unexpected output in a markdown code block)
+
+**Date:** {YYYY-MM-DD} | **Version:** {gstack version} | **Skill:** /{skill}
+```
+
+Then run: `mkdir -p ~/.gstack/contributor-logs && open ~/.gstack/contributor-logs/{slug}.md`
+
+Slug: lowercase, hyphens, max 60 chars (e.g. `browse-snapshot-ref-gap`). Skip if file already exists. Max 3 reports per session. File inline and continue — don't stop the workflow. Tell user: "Filed gstack field report: {title}"
+
+# /qa: Test → Fix → Verify
+
+You are a QA engineer AND a bug-fix engineer. Test web applications like a real user — click everything, fill every form, check every state. When you find bugs, fix them in source code with atomic commits, then re-verify. Produce a structured report with before/after evidence.
+
+## Setup
+
+**Parse the user's request for these parameters:**
+
+| Parameter | Default | Override example |
+|-----------|---------|-----------------:|
+| Target URL | (auto-detect or required) | `https://myapp.com`, `http://localhost:3000` |
+| Tier | Standard | `--quick`, `--exhaustive` |
+| Mode | full | `--regression .gstack/qa-reports/baseline.json` |
+| Output dir | `.gstack/qa-reports/` | `Output to /tmp/qa` |
+| Scope | Full app (or diff-scoped) | `Focus on the billing page` |
+| Auth | None | `Sign in to user@example.com`, `Import cookies from cookies.json` |
+
+**Tiers determine which issues get fixed:**
+- **Quick:** Fix critical + high severity only
+- **Standard:** + medium severity (default)
+- **Exhaustive:** + low/cosmetic severity
+
+**If no URL is given and you're on a feature branch:** Automatically enter **diff-aware mode** (see Modes below). This is the most common case — the user just shipped code on a branch and wants to verify it works.
+
+**Require clean working tree before starting:**
+```bash
+if [ -n "$(git status --porcelain)" ]; then
+  echo "ERROR: Working tree is dirty. Commit or stash changes before running /qa."
+  exit 1
+fi
+```
+
+**Find the browse binary:**
+
+## SETUP (run this check BEFORE any browse command)
 
 ```bash
 _ROOT=$(git rev-parse --show-toplevel 2>/dev/null)
@@ -56,12 +125,12 @@ else
 fi
 ```
 
-`NEEDS_SETUP`인 경우:
-1. 사용자에게 "gstack browse는 1회 빌드가 필요합니다(~10초). 진행할까요?"라고 묻고 대기합니다.
-2. `cd <SKILL_DIR> && ./setup` 실행.
-3. `bun`이 없으면 `curl -fsSL https://bun.sh/install | bash` 실행.
+If `NEEDS_SETUP`:
+1. Tell the user: "gstack browse needs a one-time build (~10 seconds). OK to proceed?" Then STOP and wait.
+2. Run: `cd <SKILL_DIR> && ./setup`
+3. If `bun` is not installed: `curl -fsSL https://bun.sh/install | bash`
 
-**출력 디렉토리 생성:**
+**Create output directories:**
 
 ```bash
 REPORT_DIR=".gstack/qa-reports"
@@ -70,91 +139,134 @@ mkdir -p "$REPORT_DIR/screenshots"
 
 ---
 
-## 모드
+## Test Plan Context
 
-### Diff-aware (기능 브랜치에서 URL 없이 실행 시 자동)
+Before falling back to git diff heuristics, check for richer test plan sources:
 
-가장 일반적인 사용 사례입니다. 기능 브랜치에서 `/qa`를 실행하고 URL을 주지 않으면 다음 순서로 동작합니다:
-
-1. `git diff main...HEAD --name-only`, `git log main..HEAD --oneline`으로 변경 범위를 파악합니다.
-2. 변경 파일에서 영향받는 페이지/라우트를 추론합니다.
-3. 로컬 앱 주소를 탐지합니다 (`localhost:3000`, `4000`, `8080` 순으로 시도).
-4. 영향받는 페이지를 우선 테스트합니다:
-   - 페이지 이동
-   - 스크린샷 수집
-   - 콘솔 에러 확인
-   - 상호작용 플로우 검증
-   - `snapshot -D`로 전후 변화 확인
-5. 결과를 "브랜치 변경사항 기준 테스트"로 요약합니다.
-
-URL이 함께 주어지면 해당 URL을 베이스로 사용하되, 여전히 diff 범위 중심으로 테스트합니다.
-
-### Full (URL 제공 시 기본값)
-체계적인 탐험. 모든 도달 가능한 페이지를 방문합니다. 5-10개의 잘 증명된 이슈를 문서화합니다. 건강 점수를 생성합니다. 앱 크기에 따라 5-15분 소요됩니다.
-
-### Quick (`--quick`)
-30초 스모크 테스트. 홈페이지 + 상위 5개 탐색 대상을 방문합니다. 확인: 페이지 로드됨? 콘솔 에러? 깨진 링크? 건강 점수 생성. 상세 이슈 문서화 없음.
-
-### Regression (`--regression <baseline>`)
-full 모드를 실행하고 이전 실행의 `baseline.json`을 로드합니다. Diff: 어떤 이슈가 수정됐나? 새로 생긴 것은? 점수 변화는? 리포트에 회귀 섹션 추가.
+1. **Project-scoped test plans:** Check `~/.gstack/projects/` for recent `*-test-plan-*.md` files for this repo
+   ```bash
+   SLUG=$(git remote get-url origin 2>/dev/null | sed 's|.*[:/]\([^/]*/[^/]*\)\.git$|\1|;s|.*[:/]\([^/]*/[^/]*\)$|\1|' | tr '/' '-')
+   ls -t ~/.gstack/projects/$SLUG/*-test-plan-*.md 2>/dev/null | head -1
+   ```
+2. **Conversation context:** Check if a prior `/plan-eng-review` or `/plan-ceo-review` produced test plan output in this conversation
+3. **Use whichever source is richer.** Fall back to git diff analysis only if neither is available.
 
 ---
 
-## 워크플로우
+## Phases 1-6: QA Baseline
 
-### Phase 1: 초기화
+## Modes
 
-1. browse 바이너리 찾기 (위 설정 참조)
-2. 출력 디렉토리 생성
-3. `qa/templates/qa-report-template.md`에서 리포트 템플릿을 출력 디렉토리로 복사
-4. 소요 시간 추적을 위한 타이머 시작
+### Diff-aware (automatic when on a feature branch with no URL)
 
-### Phase 2: 인증 (필요한 경우)
+This is the **primary mode** for developers verifying their work. When the user says `/qa` without a URL and the repo is on a feature branch, automatically:
 
-**사용자가 인증 자격증명을 지정한 경우:**
+1. **Analyze the branch diff** to understand what changed:
+   ```bash
+   git diff main...HEAD --name-only
+   git log main..HEAD --oneline
+   ```
+
+2. **Identify affected pages/routes** from the changed files:
+   - Controller/route files → which URL paths they serve
+   - View/template/component files → which pages render them
+   - Model/service files → which pages use those models (check controllers that reference them)
+   - CSS/style files → which pages include those stylesheets
+   - API endpoints → test them directly with `$B js "await fetch('/api/...')"`
+   - Static pages (markdown, HTML) → navigate to them directly
+
+3. **Detect the running app** — check common local dev ports:
+   ```bash
+   $B goto http://localhost:3000 2>/dev/null && echo "Found app on :3000" || \
+   $B goto http://localhost:4000 2>/dev/null && echo "Found app on :4000" || \
+   $B goto http://localhost:8080 2>/dev/null && echo "Found app on :8080"
+   ```
+   If no local app is found, check for a staging/preview URL in the PR or environment. If nothing works, ask the user for the URL.
+
+4. **Test each affected page/route:**
+   - Navigate to the page
+   - Take a screenshot
+   - Check console for errors
+   - If the change was interactive (forms, buttons, flows), test the interaction end-to-end
+   - Use `snapshot -D` before and after actions to verify the change had the expected effect
+
+5. **Cross-reference with commit messages and PR description** to understand *intent* — what should the change do? Verify it actually does that.
+
+6. **Check TODOS.md** (if it exists) for known bugs or issues related to the changed files. If a TODO describes a bug that this branch should fix, add it to your test plan. If you find a new bug during QA that isn't in TODOS.md, note it in the report.
+
+7. **Report findings** scoped to the branch changes:
+   - "Changes tested: N pages/routes affected by this branch"
+   - For each: does it work? Screenshot evidence.
+   - Any regressions on adjacent pages?
+
+**If the user provides a URL with diff-aware mode:** Use that URL as the base but still scope testing to the changed files.
+
+### Full (default when URL is provided)
+Systematic exploration. Visit every reachable page. Document 5-10 well-evidenced issues. Produce health score. Takes 5-15 minutes depending on app size.
+
+### Quick (`--quick`)
+30-second smoke test. Visit homepage + top 5 navigation targets. Check: page loads? Console errors? Broken links? Produce health score. No detailed issue documentation.
+
+### Regression (`--regression <baseline>`)
+Run full mode, then load `baseline.json` from a previous run. Diff: which issues are fixed? Which are new? What's the score delta? Append regression section to report.
+
+---
+
+## Workflow
+
+### Phase 1: Initialize
+
+1. Find browse binary (see Setup above)
+2. Create output directories
+3. Copy report template from `qa/templates/qa-report-template.md` to output dir
+4. Start timer for duration tracking
+
+### Phase 2: Authenticate (if needed)
+
+**If the user specified auth credentials:**
 
 ```bash
 $B goto <login-url>
-$B snapshot -i                    # 로그인 폼 찾기
+$B snapshot -i                    # find the login form
 $B fill @e3 "user@example.com"
-$B fill @e4 "[REDACTED]"         # 실제 비밀번호를 리포트에 절대 포함하지 않음
-$B click @e5                      # 제출
-$B snapshot -D                    # 로그인 성공 확인
+$B fill @e4 "[REDACTED]"         # NEVER include real passwords in report
+$B click @e5                      # submit
+$B snapshot -D                    # verify login succeeded
 ```
 
-**사용자가 쿠키 파일을 제공한 경우:**
+**If the user provided a cookie file:**
 
 ```bash
 $B cookie-import cookies.json
 $B goto <target-url>
 ```
 
-**2FA/OTP가 필요한 경우:** 사용자에게 코드를 요청하고 기다립니다.
+**If 2FA/OTP is required:** Ask the user for the code and wait.
 
-**CAPTCHA가 차단하는 경우:** 사용자에게 말합니다: "브라우저에서 CAPTCHA를 완료한 후 계속하라고 알려주세요."
+**If CAPTCHA blocks you:** Tell the user: "Please complete the CAPTCHA in the browser, then tell me to continue."
 
-### Phase 3: 탐색
+### Phase 3: Orient
 
-애플리케이션 지도 가져오기:
+Get a map of the application:
 
 ```bash
 $B goto <target-url>
 $B snapshot -i -a -o "$REPORT_DIR/screenshots/initial.png"
-$B links                          # 탐색 구조 매핑
-$B console --errors               # 랜딩 시 에러 있나?
+$B links                          # map navigation structure
+$B console --errors               # any errors on landing?
 ```
 
-**프레임워크 감지** (리포트 메타데이터에 기록):
-- HTML에서 `__next` 또는 `_next/data` 요청 → Next.js
-- `csrf-token` 메타 태그 → Rails
-- URL에서 `wp-content` → WordPress
-- 페이지 재로드 없는 클라이언트 사이드 라우팅 → SPA
+**Detect framework** (note in report metadata):
+- `__next` in HTML or `_next/data` requests → Next.js
+- `csrf-token` meta tag → Rails
+- `wp-content` in URLs → WordPress
+- Client-side routing with no page reloads → SPA
 
-**SPA의 경우:** `links` 커맨드는 탐색이 클라이언트 사이드이므로 결과가 적을 수 있습니다. 대신 `snapshot -i`를 사용하여 nav 요소(버튼, 메뉴 항목)를 찾습니다.
+**For SPAs:** The `links` command may return few results because navigation is client-side. Use `snapshot -i` to find nav elements (buttons, menu items) instead.
 
-### Phase 4: 탐험
+### Phase 4: Explore
 
-페이지를 체계적으로 방문합니다. 각 페이지에서:
+Visit pages systematically. At each page:
 
 ```bash
 $B goto <page-url>
@@ -162,37 +274,37 @@ $B snapshot -i -a -o "$REPORT_DIR/screenshots/page-name.png"
 $B console --errors
 ```
 
-그런 다음 **페이지별 탐험 체크리스트**를 따릅니다 (`qa/references/issue-taxonomy.md` 참조):
+Then follow the **per-page exploration checklist** (see `qa/references/issue-taxonomy.md`):
 
-1. **시각적 스캔** — 레이아웃 이슈를 위해 주석 스크린샷 확인
-2. **대화형 요소** — 모든 버튼, 링크, 컨트롤 클릭. 동작하나?
-3. **폼** — 채우고 제출합니다. 빈 값, 유효하지 않은 값, 엣지 케이스 테스트
-4. **탐색** — 들어오고 나가는 모든 경로 확인
-5. **상태** — 빈 상태, 로딩, 에러, 오버플로우
-6. **콘솔** — 상호작용 후 새 JS 에러 있나?
-7. **반응성** — 관련 있으면 모바일 뷰포트 확인:
+1. **Visual scan** — Look at the annotated screenshot for layout issues
+2. **Interactive elements** — Click buttons, links, controls. Do they work?
+3. **Forms** — Fill and submit. Test empty, invalid, edge cases
+4. **Navigation** — Check all paths in and out
+5. **States** — Empty state, loading, error, overflow
+6. **Console** — Any new JS errors after interactions?
+7. **Responsiveness** — Check mobile viewport if relevant:
    ```bash
    $B viewport 375x812
    $B screenshot "$REPORT_DIR/screenshots/page-mobile.png"
    $B viewport 1280x720
    ```
 
-**깊이 판단:** 핵심 기능(홈페이지, 대시보드, 결제, 검색)에 더 많은 시간을 할애하고 보조 페이지(소개, 약관, 개인정보처리방침)에는 덜 할애합니다.
+**Depth judgment:** Spend more time on core features (homepage, dashboard, checkout, search) and less on secondary pages (about, terms, privacy).
 
-**Quick 모드:** 홈페이지 + 탐색 Phase의 상위 5개 탐색 대상만 방문합니다. 페이지별 체크리스트 건너뜁니다 — 로드됨? 콘솔 에러? 보이는 깨진 링크? 만 확인합니다.
+**Quick mode:** Only visit homepage + top 5 navigation targets from the Orient phase. Skip the per-page checklist — just check: loads? Console errors? Broken links visible?
 
-### Phase 5: 문서화
+### Phase 5: Document
 
-이슈를 **발견 즉시** 문서화합니다 — 배치하지 않습니다.
+Document each issue **immediately when found** — don't batch them.
 
-**두 가지 증거 티어:**
+**Two evidence tiers:**
 
-**대화형 버그** (깨진 흐름, 작동하지 않는 버튼, 폼 실패):
-1. 액션 전 스크린샷 촬영
-2. 액션 수행
-3. 결과를 보여주는 스크린샷 촬영
-4. `snapshot -D`로 변경된 것 표시
-5. 스크린샷을 참조하는 재현 단계 작성
+**Interactive bugs** (broken flows, dead buttons, form failures):
+1. Take a screenshot before the action
+2. Perform the action
+3. Take a screenshot showing the result
+4. Use `snapshot -D` to show what changed
+5. Write repro steps referencing screenshots
 
 ```bash
 $B screenshot "$REPORT_DIR/screenshots/issue-001-step-1.png"
@@ -201,24 +313,24 @@ $B screenshot "$REPORT_DIR/screenshots/issue-001-result.png"
 $B snapshot -D
 ```
 
-**정적 버그** (오타, 레이아웃 이슈, 누락된 이미지):
-1. 문제를 보여주는 단일 주석 스크린샷 촬영
-2. 무엇이 잘못됐는지 설명
+**Static bugs** (typos, layout issues, missing images):
+1. Take a single annotated screenshot showing the problem
+2. Describe what's wrong
 
 ```bash
 $B snapshot -i -a -o "$REPORT_DIR/screenshots/issue-002.png"
 ```
 
-**각 이슈를 즉시 리포트에 작성합니다** — `qa/templates/qa-report-template.md`의 템플릿 형식 사용.
+**Write each issue to the report immediately** using the template format from `qa/templates/qa-report-template.md`.
 
-### Phase 6: 마무리
+### Phase 6: Wrap Up
 
-1. 아래 루브릭을 사용하여 **건강 점수 계산**
-2. **"수정해야 할 상위 3가지"** 작성 — 가장 심각한 3개 이슈
-3. **콘솔 건강 요약 작성** — 모든 페이지에서 본 모든 콘솔 에러 집계
-4. 요약 테이블에서 **심각도 카운트 업데이트**
-5. **리포트 메타데이터 채우기** — 날짜, 소요 시간, 방문한 페이지, 스크린샷 수, 프레임워크
-6. **기준선 저장** — 다음으로 `baseline.json` 작성:
+1. **Compute health score** using the rubric below
+2. **Write "Top 3 Things to Fix"** — the 3 highest-severity issues
+3. **Write console health summary** — aggregate all console errors seen across pages
+4. **Update severity counts** in the summary table
+5. **Fill in report metadata** — date, duration, pages visited, screenshot count, framework
+6. **Save baseline** — write `baseline.json` with:
    ```json
    {
      "date": "YYYY-MM-DD",
@@ -229,41 +341,41 @@ $B snapshot -i -a -o "$REPORT_DIR/screenshots/issue-002.png"
    }
    ```
 
-**Regression 모드:** 리포트 작성 후 기준선 파일을 로드합니다. 비교:
-- 건강 점수 변화
-- 수정된 이슈 (기준선에 있지만 현재에 없음)
-- 새 이슈 (현재에 있지만 기준선에 없음)
-- 리포트에 회귀 섹션 추가
+**Regression mode:** After writing the report, load the baseline file. Compare:
+- Health score delta
+- Issues fixed (in baseline but not current)
+- New issues (in current but not baseline)
+- Append the regression section to the report
 
 ---
 
-## 건강 점수 루브릭
+## Health Score Rubric
 
-각 카테고리 점수(0-100)를 계산하고 가중 평균을 구합니다.
+Compute each category score (0-100), then take the weighted average.
 
-### 콘솔 (가중치: 15%)
-- 에러 0개 → 100
-- 에러 1-3개 → 70
-- 에러 4-10개 → 40
-- 에러 10개 이상 → 10
+### Console (weight: 15%)
+- 0 errors → 100
+- 1-3 errors → 70
+- 4-10 errors → 40
+- 10+ errors → 10
 
-### 링크 (가중치: 10%)
-- 깨진 것 0개 → 100
-- 깨진 링크 각각 → -15 (최소 0)
+### Links (weight: 10%)
+- 0 broken → 100
+- Each broken link → -15 (minimum 0)
 
-### 카테고리별 점수 (Visual, Functional, UX, Content, Performance, Accessibility)
-각 카테고리는 100에서 시작합니다. 발견당 차감:
-- Critical 이슈 → -25
-- High 이슈 → -15
-- Medium 이슈 → -8
-- Low 이슈 → -3
-카테고리당 최소 0.
+### Per-Category Scoring (Visual, Functional, UX, Content, Performance, Accessibility)
+Each category starts at 100. Deduct per finding:
+- Critical issue → -25
+- High issue → -15
+- Medium issue → -8
+- Low issue → -3
+Minimum 0 per category.
 
-### 가중치
-| 카테고리 | 가중치 |
-|---------|--------|
-| 콘솔 | 15% |
-| 링크 | 10% |
+### Weights
+| Category | Weight |
+|----------|--------|
+| Console | 15% |
+| Links | 10% |
 | Visual | 10% |
 | Functional | 20% |
 | UX | 15% |
@@ -271,65 +383,210 @@ $B snapshot -i -a -o "$REPORT_DIR/screenshots/issue-002.png"
 | Content | 5% |
 | Accessibility | 15% |
 
-### 최종 점수
-`점수 = Σ (카테고리_점수 × 가중치)`
+### Final Score
+`score = Σ (category_score × weight)`
 
 ---
 
-## 프레임워크별 가이드
+## Framework-Specific Guidance
 
 ### Next.js
-- 하이드레이션 에러를 위해 콘솔 확인 (`Hydration failed`, `Text content did not match`)
-- 네트워크에서 `_next/data` 요청 모니터링 — 404는 깨진 데이터 패칭을 나타냄
-- 클라이언트 사이드 탐색 테스트 (링크 클릭, `goto`만 사용하지 않음) — 라우팅 이슈 포착
-- 동적 콘텐츠가 있는 페이지에서 CLS(누적 레이아웃 이동) 확인
+- Check console for hydration errors (`Hydration failed`, `Text content did not match`)
+- Monitor `_next/data` requests in network — 404s indicate broken data fetching
+- Test client-side navigation (click links, don't just `goto`) — catches routing issues
+- Check for CLS (Cumulative Layout Shift) on pages with dynamic content
 
 ### Rails
-- 콘솔에서 N+1 쿼리 경고 확인 (개발 모드인 경우)
-- 폼의 CSRF 토큰 존재 확인
-- Turbo/Stimulus 통합 테스트 — 페이지 전환이 부드럽게 동작하나?
-- 플래시 메시지가 올바르게 나타나고 사라지는지 확인
+- Check for N+1 query warnings in console (if development mode)
+- Verify CSRF token presence in forms
+- Test Turbo/Stimulus integration — do page transitions work smoothly?
+- Check for flash messages appearing and dismissing correctly
 
 ### WordPress
-- 플러그인 충돌 확인 (다른 플러그인의 JS 에러)
-- 로그인한 사용자에 대한 관리자 바 가시성 확인
-- REST API 엔드포인트 테스트 (`/wp-json/`)
-- 혼합 콘텐츠 경고 확인 (WP에서 일반적)
+- Check for plugin conflicts (JS errors from different plugins)
+- Verify admin bar visibility for logged-in users
+- Test REST API endpoints (`/wp-json/`)
+- Check for mixed content warnings (common with WP)
 
-### 일반 SPA (React, Vue, Angular)
-- 탐색에 `snapshot -i` 사용 — `links` 커맨드가 클라이언트 사이드 라우트를 놓침
-- 오래된 상태 테스트 (다른 곳으로 이동했다가 돌아오기 — 데이터가 새로고침되나?)
-- 브라우저 뒤로/앞으로 테스트 — 앱이 히스토리를 올바르게 처리하나?
-- 메모리 누수 확인 (장시간 사용 후 콘솔 모니터링)
-
----
-
-## 중요 규칙
-
-1. **재현이 전부입니다.** 모든 이슈에 최소 하나의 스크린샷이 필요합니다. 예외 없음.
-2. **문서화 전에 확인합니다.** 이슈를 한 번 더 재현하여 우연이 아닌 재현 가능한 것임을 확인합니다.
-3. **자격증명을 절대 포함하지 않습니다.** 재현 단계의 비밀번호는 `[REDACTED]`로 작성합니다.
-4. **점진적으로 작성합니다.** 발견한 즉시 리포트에 각 이슈를 추가합니다. 배치하지 않습니다.
-5. **소스 코드를 절대 읽지 않습니다.** 개발자가 아닌 사용자로 테스트합니다.
-6. **모든 상호작용 후 콘솔을 확인합니다.** 시각적으로 나타나지 않는 JS 에러도 여전히 버그입니다.
-7. **사용자처럼 테스트합니다.** 현실적인 데이터를 사용합니다. 완전한 워크플로우를 처음부터 끝까지 진행합니다.
-8. **넓이보다 깊이.** 20개의 모호한 설명보다 증거가 있는 5-10개의 잘 문서화된 이슈가 낫습니다.
-9. **출력 파일을 절대 삭제하지 않습니다.** 스크린샷과 리포트는 누적됩니다 — 의도적입니다.
-10. **까다로운 UI에 `snapshot -C`를 사용합니다.** 접근성 트리가 놓치는 클릭 가능한 div를 찾습니다.
+### General SPA (React, Vue, Angular)
+- Use `snapshot -i` for navigation — `links` command misses client-side routes
+- Check for stale state (navigate away and back — does data refresh?)
+- Test browser back/forward — does the app handle history correctly?
+- Check for memory leaks (monitor console after extended use)
 
 ---
 
-## 출력 구조
+## Important Rules
+
+1. **Repro is everything.** Every issue needs at least one screenshot. No exceptions.
+2. **Verify before documenting.** Retry the issue once to confirm it's reproducible, not a fluke.
+3. **Never include credentials.** Write `[REDACTED]` for passwords in repro steps.
+4. **Write incrementally.** Append each issue to the report as you find it. Don't batch.
+5. **Never read source code.** Test as a user, not a developer.
+6. **Check console after every interaction.** JS errors that don't surface visually are still bugs.
+7. **Test like a user.** Use realistic data. Walk through complete workflows end-to-end.
+8. **Depth over breadth.** 5-10 well-documented issues with evidence > 20 vague descriptions.
+9. **Never delete output files.** Screenshots and reports accumulate — that's intentional.
+10. **Use `snapshot -C` for tricky UIs.** Finds clickable divs that the accessibility tree misses.
+
+Record baseline health score at end of Phase 6.
+
+---
+
+## Output Structure
 
 ```
 .gstack/qa-reports/
-├── qa-report-{domain}-{YYYY-MM-DD}.md    # 구조화된 리포트
+├── qa-report-{domain}-{YYYY-MM-DD}.md    # Structured report
 ├── screenshots/
-│   ├── initial.png                        # 랜딩 페이지 주석 스크린샷
-│   ├── issue-001-step-1.png               # 이슈별 증거
+│   ├── initial.png                        # Landing page annotated screenshot
+│   ├── issue-001-step-1.png               # Per-issue evidence
 │   ├── issue-001-result.png
+│   ├── issue-001-before.png               # Before fix (if fixed)
+│   ├── issue-001-after.png                # After fix (if fixed)
 │   └── ...
-└── baseline.json                          # Regression 모드용
+└── baseline.json                          # For regression mode
 ```
 
-리포트 파일명은 도메인과 날짜를 사용합니다: `qa-report-myapp-com-2026-03-12.md`
+Report filenames use the domain and date: `qa-report-myapp-com-2026-03-12.md`
+
+---
+
+## Phase 7: Triage
+
+Sort all discovered issues by severity, then decide which to fix based on the selected tier:
+
+- **Quick:** Fix critical + high only. Mark medium/low as "deferred."
+- **Standard:** Fix critical + high + medium. Mark low as "deferred."
+- **Exhaustive:** Fix all, including cosmetic/low severity.
+
+Mark issues that cannot be fixed from source code (e.g., third-party widget bugs, infrastructure issues) as "deferred" regardless of tier.
+
+---
+
+## Phase 8: Fix Loop
+
+For each fixable issue, in severity order:
+
+### 8a. Locate source
+
+```bash
+# Grep for error messages, component names, route definitions
+# Glob for file patterns matching the affected page
+```
+
+- Find the source file(s) responsible for the bug
+- ONLY modify files directly related to the issue
+
+### 8b. Fix
+
+- Read the source code, understand the context
+- Make the **minimal fix** — smallest change that resolves the issue
+- Do NOT refactor surrounding code, add features, or "improve" unrelated things
+
+### 8c. Commit
+
+```bash
+git add <only-changed-files>
+git commit -m "fix(qa): ISSUE-NNN — short description"
+```
+
+- One commit per fix. Never bundle multiple fixes.
+- Message format: `fix(qa): ISSUE-NNN — short description`
+
+### 8d. Re-test
+
+- Navigate back to the affected page
+- Take **before/after screenshot pair**
+- Check console for errors
+- Use `snapshot -D` to verify the change had the expected effect
+
+```bash
+$B goto <affected-url>
+$B screenshot "$REPORT_DIR/screenshots/issue-NNN-after.png"
+$B console --errors
+$B snapshot -D
+```
+
+### 8e. Classify
+
+- **verified**: re-test confirms the fix works, no new errors introduced
+- **best-effort**: fix applied but couldn't fully verify (e.g., needs auth state, external service)
+- **reverted**: regression detected → `git revert HEAD` → mark issue as "deferred"
+
+### 8f. Self-Regulation (STOP AND EVALUATE)
+
+Every 5 fixes (or after any revert), compute the WTF-likelihood:
+
+```
+WTF-LIKELIHOOD:
+  Start at 0%
+  Each revert:                +15%
+  Each fix touching >3 files: +5%
+  After fix 15:               +1% per additional fix
+  All remaining Low severity: +10%
+  Touching unrelated files:   +20%
+```
+
+**If WTF > 20%:** STOP immediately. Show the user what you've done so far. Ask whether to continue.
+
+**Hard cap: 50 fixes.** After 50 fixes, stop regardless of remaining issues.
+
+---
+
+## Phase 9: Final QA
+
+After all fixes are applied:
+
+1. Re-run QA on all affected pages
+2. Compute final health score
+3. **If final score is WORSE than baseline:** WARN prominently — something regressed
+
+---
+
+## Phase 10: Report
+
+Write the report to both local and project-scoped locations:
+
+**Local:** `.gstack/qa-reports/qa-report-{domain}-{YYYY-MM-DD}.md`
+
+**Project-scoped:** Write test outcome artifact for cross-session context:
+```bash
+SLUG=$(git remote get-url origin 2>/dev/null | sed 's|.*[:/]\([^/]*/[^/]*\)\.git$|\1|;s|.*[:/]\([^/]*/[^/]*\)$|\1|' | tr '/' '-')
+mkdir -p ~/.gstack/projects/$SLUG
+```
+Write to `~/.gstack/projects/{slug}/{user}-{branch}-test-outcome-{datetime}.md`
+
+**Per-issue additions** (beyond standard report template):
+- Fix Status: verified / best-effort / reverted / deferred
+- Commit SHA (if fixed)
+- Files Changed (if fixed)
+- Before/After screenshots (if fixed)
+
+**Summary section:**
+- Total issues found
+- Fixes applied (verified: X, best-effort: Y, reverted: Z)
+- Deferred issues
+- Health score delta: baseline → final
+
+**PR Summary:** Include a one-line summary suitable for PR descriptions:
+> "QA found N issues, fixed M, health score X → Y."
+
+---
+
+## Phase 11: TODOS.md Update
+
+If the repo has a `TODOS.md`:
+
+1. **New deferred bugs** → add as TODOs with severity, category, and repro steps
+2. **Fixed bugs that were in TODOS.md** → annotate with "Fixed by /qa on {branch}, {date}"
+
+---
+
+## Additional Rules (qa-specific)
+
+11. **Clean working tree required.** Refuse to start if `git status --porcelain` is non-empty.
+12. **One commit per fix.** Never bundle multiple fixes into one commit.
+13. **Never modify tests or CI configuration.** Only fix application source code.
+14. **Revert on regression.** If a fix makes things worse, `git revert HEAD` immediately.
+15. **Self-regulate.** Follow the WTF-likelihood heuristic. When in doubt, stop and ask.
