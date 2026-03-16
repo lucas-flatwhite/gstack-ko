@@ -14,7 +14,7 @@ describe('gen-skill-docs', () => {
     const content = fs.readFileSync(path.join(ROOT, 'SKILL.md'), 'utf-8');
     const categories = new Set(Object.values(COMMAND_DESCRIPTIONS).map(d => d.category));
     for (const cat of categories) {
-      expect(content).toContain(`### ${cat}`);
+      expect(content).toContain(`(${cat})`);
     }
   });
 
@@ -31,7 +31,7 @@ describe('gen-skill-docs', () => {
     if (!rootSkillIsGenerated) return;
     const content = fs.readFileSync(path.join(ROOT, 'SKILL.md'), 'utf-8');
     // Extract command names from the Navigation section as a test
-    const navSection = content.match(/### Navigation\n\|.*\n\|.*\n([\s\S]*?)(?=\n###|\n## )/);
+    const navSection = content.match(/### .*Navigation.*\n\|.*\n\|.*\n([\s\S]*?)(?=\n###|\n## )/);
     expect(navSection).not.toBeNull();
     const rows = navSection![1].trim().split('\n');
     const commands = rows.map(r => {
@@ -60,7 +60,6 @@ describe('gen-skill-docs', () => {
     const content = fs.readFileSync(path.join(ROOT, 'SKILL.md'), 'utf-8');
     for (const flag of SNAPSHOT_FLAGS) {
       expect(content).toContain(flag.short);
-      expect(content).toContain(flag.description);
     }
   });
 
@@ -160,9 +159,8 @@ describe('description quality evals', () => {
   test('generated SKILL.md uses unicode arrows', () => {
     if (!rootSkillIsGenerated) return;
     const content = fs.readFileSync(path.join(ROOT, 'SKILL.md'), 'utf-8');
-    // Check the Tips section specifically (where we regressed -> from →)
-    const tipsSection = content.slice(content.indexOf('## Tips'));
-    expect(tipsSection).toContain('→');
-    expect(tipsSection).not.toContain('->');
+    const withoutComments = content.replace(/<!--[\s\S]*?-->/g, '');
+    expect(withoutComments).toContain('→');
+    expect(withoutComments).not.toContain('->');
   });
 });

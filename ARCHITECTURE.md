@@ -1,12 +1,12 @@
-# Architecture
+# 아키텍처
 
-This document explains **why** gstack is built the way it is. For setup and commands, see CLAUDE.md. For contributing, see CONTRIBUTING.md.
+이 문서는 gstack를 **왜 이런 구조로 만들었는지** 설명합니다. 설치와 명령은 `CLAUDE.md`, 기여 방법은 `CONTRIBUTING.md`를 참고하세요.
 
-## The core idea
+## 핵심 아이디어
 
-gstack gives Claude Code a persistent browser and a set of opinionated workflow skills. The browser is the hard part — everything else is Markdown.
+gstack는 Claude Code에 지속형 브라우저와 의견이 반영된 워크플로우 스킬 세트를 제공합니다. 어려운 부분은 브라우저이고, 나머지는 대부분 Markdown입니다.
 
-The key insight: an AI agent interacting with a browser needs **sub-second latency** and **persistent state**. If every command cold-starts a browser, you're waiting 3-5 seconds per tool call. If the browser dies between commands, you lose cookies, tabs, and login sessions. So gstack runs a long-lived Chromium daemon that the CLI talks to over localhost HTTP.
+핵심 인사이트는 다음과 같습니다. 브라우저를 다루는 AI 에이전트에는 **서브초 지연시간**과 **지속 상태**가 필요합니다. 명령마다 브라우저를 콜드 스타트하면 툴 호출마다 3-5초를 기다리게 됩니다. 명령 사이에 브라우저가 종료되면 쿠키, 탭, 로그인 세션이 사라집니다. 그래서 gstack는 장수명 Chromium 데몬을 띄우고 CLI가 localhost HTTP로 통신합니다.
 
 ```
 Claude Code                     gstack
@@ -33,208 +33,204 @@ Claude Code                     gstack
                                └───────────────────────┘
 ```
 
-First call starts everything (~3s). Every call after: ~100-200ms.
+첫 호출은 전체 구동으로 약 3초, 이후 호출은 약 100-200ms입니다.
 
-## Why Bun
+## 왜 Bun인가
 
-Node.js would work. Bun is better here for three reasons:
+Node.js로도 구현할 수 있지만, 여기서는 Bun이 더 적합합니다.
 
-1. **Compiled binaries.** `bun build --compile` produces a single ~58MB executable. No `node_modules` at runtime, no `npx`, no PATH configuration. The binary just runs. This matters because gstack installs into `~/.claude/skills/` where users don't expect to manage a Node.js project.
+1. **컴파일 바이너리**: `bun build --compile`로 약 58MB 단일 실행파일을 만듭니다. 런타임 `node_modules`, `npx`, PATH 설정이 필요 없습니다. gstack는 `~/.claude/skills/`에 설치되므로 사용자가 Node 프로젝트 관리 부담을 느끼지 않는 점이 중요합니다.
 
-2. **Native SQLite.** Cookie decryption reads Chromium's SQLite cookie database directly. Bun has `new Database()` built in — no `better-sqlite3`, no native addon compilation, no gyp. One less thing that breaks on different machines.
+2. **네이티브 SQLite**: 쿠키 복호화 과정에서 Chromium SQLite 쿠키 DB를 직접 읽습니다. Bun은 `new Database()`를 기본 제공하므로 `better-sqlite3`, 네이티브 애드온 컴파일, gyp 의존이 없습니다.
 
-3. **Native TypeScript.** The server runs as `bun run server.ts` during development. No compilation step, no `ts-node`, no source maps to debug. The compiled binary is for deployment; source files are for development.
+3. **네이티브 TypeScript**: 개발 중 서버를 `bun run server.ts`로 바로 실행합니다. 별도 컴파일 단계나 `ts-node`, 디버깅용 source map 의존이 줄어듭니다. 배포는 컴파일 바이너리, 개발은 소스 파일 중심입니다.
 
-4. **Built-in HTTP server.** `Bun.serve()` is fast, simple, and doesn't need Express or Fastify. The server handles ~10 routes total. A framework would be overhead.
+4. **내장 HTTP 서버**: `Bun.serve()`는 빠르고 단순하며 Express/Fastify 같은 프레임워크가 필요 없습니다. 서버 라우트가 약 10개 수준이라 프레임워크 오버헤드가 더 큽니다.
 
-The bottleneck is always Chromium, not the CLI or server. Bun's startup speed (~1ms for the compiled binary vs ~100ms for Node) is nice but not the reason we chose it. The compiled binary and native SQLite are.
+병목은 CLI/서버가 아니라 Chromium입니다. Bun의 빠른 시작 속도는 이점이지만, 채택 이유의 핵심은 컴파일 바이너리와 네이티브 SQLite입니다.
 
-## The daemon model
+## 데몬 모델
 
-### Why not start a browser per command?
+### 명령마다 브라우저를 띄우지 않는 이유
 
-Playwright can launch Chromium in ~2-3 seconds. For a single screenshot, that's fine. For a QA session with 20+ commands, it's 40+ seconds of browser startup overhead. Worse: you lose all state between commands. Cookies, localStorage, login sessions, open tabs — all gone.
+Playwright는 Chromium 시작에 대략 2-3초가 필요합니다. 단일 스크린샷에는 괜찮지만, 20개 이상 명령을 쓰는 QA 세션에서는 시작 오버헤드만 40초 이상이 됩니다. 더 큰 문제는 상태 손실입니다. 쿠키, localStorage, 로그인, 열린 탭이 매번 사라집니다.
 
-The daemon model means:
+데몬 모델의 효과:
 
-- **Persistent state.** Log in once, stay logged in. Open a tab, it stays open. localStorage persists across commands.
-- **Sub-second commands.** After the first call, every command is just an HTTP POST. ~100-200ms round-trip including Chromium's work.
-- **Automatic lifecycle.** The server auto-starts on first use, auto-shuts down after 30 minutes idle. No process management needed.
+- **지속 상태**: 한 번 로그인하면 유지됩니다. 탭도 유지됩니다. localStorage도 명령 간 유지됩니다.
+- **서브초 응답**: 첫 호출 이후에는 HTTP POST 한 번으로 처리되어 왕복 100-200ms 수준입니다.
+- **자동 라이프사이클**: 첫 사용 시 자동 시작, 30분 유휴 시 자동 종료. 별도 프로세스 관리가 필요 없습니다.
 
-### State file
+### 상태 파일
 
-The server writes `.gstack/browse.json` (atomic write via tmp + rename, mode 0o600):
+서버는 `.gstack/browse.json`을 기록합니다(임시파일 + rename 원자적 쓰기, 권한 0o600).
 
 ```json
 { "pid": 12345, "port": 34567, "token": "uuid-v4", "startedAt": "...", "binaryVersion": "abc123" }
 ```
 
-The CLI reads this file to find the server. If the file is missing, stale, or the PID is dead, the CLI spawns a new server.
+CLI는 이 파일로 서버를 찾습니다. 파일이 없거나 오래되었거나 PID가 죽었으면 새 서버를 생성합니다.
 
-### Port selection
+### 포트 선택
 
-Random port between 10000-60000 (retry up to 5 on collision). This means 10 Conductor workspaces can each run their own browse daemon with zero configuration and zero port conflicts. The old approach (scanning 9400-9409) broke constantly in multi-workspace setups.
+포트는 10000-60000 범위에서 랜덤으로 고르고 충돌 시 최대 5회 재시도합니다. 그래서 Conductor 워크스페이스가 여러 개여도 별도 설정 없이 각자 browse 데몬을 띄울 수 있습니다. 예전 방식(9400-9409 순회)은 멀티 워크스페이스에서 충돌이 잦았습니다.
 
-### Version auto-restart
+### 버전 자동 재시작
 
-The build writes `git rev-parse HEAD` to `browse/dist/.version`. On each CLI invocation, if the binary's version doesn't match the running server's `binaryVersion`, the CLI kills the old server and starts a new one. This prevents the "stale binary" class of bugs entirely — rebuild the binary, next command picks it up automatically.
+빌드 시 `browse/dist/.version`에 `git rev-parse HEAD`를 씁니다. CLI 호출 때 실행 중 서버의 `binaryVersion`과 현재 바이너리 버전이 다르면, CLI가 기존 서버를 종료하고 새로 시작합니다. 이로써 "오래된 바이너리" 계열 문제를 원천 차단합니다.
 
-## Security model
+## 보안 모델
 
-### Localhost only
+### localhost 한정
 
-The HTTP server binds to `localhost`, not `0.0.0.0`. It's not reachable from the network.
+HTTP 서버는 `0.0.0.0`이 아니라 `localhost`에만 바인딩됩니다. 외부 네트워크에서 접근할 수 없습니다.
 
-### Bearer token auth
+### Bearer 토큰 인증
 
-Every server session generates a random UUID token, written to the state file with mode 0o600 (owner-only read). Every HTTP request must include `Authorization: Bearer <token>`. If the token doesn't match, the server returns 401.
+서버 세션마다 랜덤 UUID 토큰을 생성해 상태 파일(권한 0o600)에 기록합니다. 모든 HTTP 요청은 `Authorization: Bearer <token>` 헤더를 포함해야 하며, 불일치 시 401을 반환합니다.
 
-This prevents other processes on the same machine from talking to your browse server. The cookie picker UI (`/cookie-picker`) and health check (`/health`) are exempt — they're localhost-only and don't execute commands.
+이로써 같은 머신의 다른 프로세스가 browse 서버를 제어하는 것을 막습니다. 쿠키 선택기(`/cookie-picker`)와 헬스체크(`/health`)는 localhost 전용이며 명령 실행을 하지 않기 때문에 예외 처리됩니다.
 
-### Cookie security
+### 쿠키 보안
 
-Cookies are the most sensitive data gstack handles. The design:
+쿠키는 gstack가 다루는 데이터 중 민감도가 가장 높습니다. 설계 원칙은 다음과 같습니다.
 
-1. **Keychain access requires user approval.** First cookie import per browser triggers a macOS Keychain dialog. The user must click "Allow" or "Always Allow." gstack never silently accesses credentials.
+1. **키체인 접근은 사용자 승인 필요**: 브라우저별 첫 쿠키 가져오기 시 macOS Keychain 대화상자가 뜹니다. 사용자가 "허용" 또는 "항상 허용"을 눌러야 합니다.
+2. **복호화는 프로세스 메모리 내부에서만**: 쿠키 값은 메모리에서 복호화(PBKDF2 + AES-128-CBC)되어 Playwright 세션에 로드되고 평문으로 디스크에 쓰지 않습니다.
+3. **DB는 읽기 전용**: 브라우저가 사용하는 원본 쿠키 DB 잠금을 피하려고 임시 파일에 복사한 뒤 read-only로 엽니다. 원본 DB를 수정하지 않습니다.
+4. **키 캐시는 세션 단위**: Keychain 비밀번호와 파생 AES 키는 서버 세션 생존 동안만 메모리에 유지됩니다. 서버 종료 시 함께 사라집니다.
+5. **로그에 쿠키 값 미노출**: 콘솔/네트워크/다이얼로그 로그에 쿠키 값이 들어가지 않으며, `cookies` 출력도 메타데이터 중심이고 값은 잘립니다.
 
-2. **Decryption happens in-process.** Cookie values are decrypted in memory (PBKDF2 + AES-128-CBC), loaded into the Playwright context, and never written to disk in plaintext. The cookie picker UI never displays cookie values — only domain names and counts.
+### 셸 인젝션 방지
 
-3. **Database is read-only.** gstack copies the Chromium cookie DB to a temp file (to avoid SQLite lock conflicts with the running browser) and opens it read-only. It never modifies your real browser's cookie database.
+브라우저 레지스트리(Comet, Chrome, Arc, Brave, Edge)는 하드코딩되어 있습니다. DB 경로도 알려진 상수 조합으로만 생성하며 사용자 입력으로 만들지 않습니다. Keychain 접근은 셸 문자열 보간 대신 인자 배열 기반 `Bun.spawn()`을 사용합니다.
 
-4. **Key caching is per-session.** The Keychain password + derived AES key are cached in memory for the server's lifetime. When the server shuts down (idle timeout or explicit stop), the cache is gone.
+## ref 시스템
 
-5. **No cookie values in logs.** Console, network, and dialog logs never contain cookie values. The `cookies` command outputs cookie metadata (domain, name, expiry) but values are truncated.
+Ref(`@e1`, `@e2`, `@c1`)는 CSS 셀렉터나 XPath를 직접 쓰지 않고 페이지 요소를 지정하는 방법입니다.
 
-### Shell injection prevention
-
-The browser registry (Comet, Chrome, Arc, Brave, Edge) is hardcoded. Database paths are constructed from known constants, never from user input. Keychain access uses `Bun.spawn()` with explicit argument arrays, not shell string interpolation.
-
-## The ref system
-
-Refs (`@e1`, `@e2`, `@c1`) are how the agent addresses page elements without writing CSS selectors or XPath.
-
-### How it works
+### 동작 방식
 
 ```
-1. Agent runs: $B snapshot -i
-2. Server calls Playwright's page.accessibility.snapshot()
-3. Parser walks the ARIA tree, assigns sequential refs: @e1, @e2, @e3...
-4. For each ref, builds a Playwright Locator: getByRole(role, { name }).nth(index)
-5. Stores Map<string, Locator> on the BrowserManager instance
-6. Returns the annotated tree as plain text
+1. 에이전트 실행: $B snapshot -i
+2. 서버가 Playwright page.accessibility.snapshot() 호출
+3. 파서가 ARIA 트리를 순회하며 순차 ref 부여: @e1, @e2, @e3...
+4. 각 ref마다 Playwright Locator 생성: getByRole(role, { name }).nth(index)
+5. BrowserManager 인스턴스에 Map<string, Locator> 저장
+6. 주석이 달린 트리를 plain text로 반환
 
-Later:
-7. Agent runs: $B click @e3
-8. Server resolves @e3 → Locator → locator.click()
+이후:
+7. 에이전트 실행: $B click @e3
+8. 서버가 @e3 -> Locator -> locator.click() 순서로 실행
 ```
 
-### Why Locators, not DOM mutation
+### DOM 변형 대신 Locator를 쓰는 이유
 
-The obvious approach is to inject `data-ref="@e1"` attributes into the DOM. This breaks on:
+DOM에 `data-ref="@e1"`를 주입하는 방식은 다음에서 깨집니다.
 
-- **CSP (Content Security Policy).** Many production sites block DOM modification from scripts.
-- **React/Vue/Svelte hydration.** Framework reconciliation can strip injected attributes.
-- **Shadow DOM.** Can't reach inside shadow roots from the outside.
+- **CSP(Content Security Policy)**: 운영 환경 다수에서 스크립트 기반 DOM 수정이 차단됩니다.
+- **React/Vue/Svelte hydration**: 프레임워크 재조정 과정에서 주입 속성이 제거될 수 있습니다.
+- **Shadow DOM**: 외부에서 shadow root 내부 요소 접근이 제한됩니다.
 
-Playwright Locators are external to the DOM. They use the accessibility tree (which Chromium maintains internally) and `getByRole()` queries. No DOM mutation, no CSP issues, no framework conflicts.
+Playwright Locator는 DOM 외부 메커니즘으로 접근성 트리와 `getByRole()` 쿼리를 사용합니다. DOM 변형이 없어 CSP, 프레임워크 충돌 리스크가 줄어듭니다.
 
-### Ref lifecycle
+### ref 라이프사이클
 
-Refs are cleared on navigation (the `framenavigated` event on the main frame). This is correct — after navigation, all locators are stale. The agent must run `snapshot` again to get fresh refs. This is by design: stale refs should fail loudly, not click the wrong element.
+메인 프레임의 `framenavigated` 이벤트가 발생하면 ref를 비웁니다. 탐색 이후 기존 locator는 stale이므로 이 동작이 맞습니다. 에이전트는 `snapshot`을 다시 실행해 새 ref를 받아야 합니다. 잘못된 요소를 클릭하는 것보다 stale ref를 명확히 실패시키는 것이 설계 의도입니다.
 
-### Cursor-interactive refs (@c)
+### cursor-interactive ref (@c) 탐지
 
-The `-C` flag finds elements that are clickable but not in the ARIA tree — things styled with `cursor: pointer`, elements with `onclick` attributes, or custom `tabindex`. These get `@c1`, `@c2` refs in a separate namespace. This catches custom components that frameworks render as `<div>` but are actually buttons.
+`-C` 플래그는 ARIA 트리에 나타나지 않지만 클릭 가능한 요소를 찾습니다. 예: `cursor: pointer`, `onclick` 속성, 커스텀 `tabindex`. 이 요소들에 별도 네임스페이스(`@c1`, `@c2`) ref를 부여합니다. `<div>`로 렌더링된 커스텀 버튼 컴포넌트 탐지에 유용합니다.
 
-## Logging architecture
+## 로깅 아키텍처
 
-Three ring buffers (50,000 entries each, O(1) push):
-
-```
-Browser events → CircularBuffer (in-memory) → Async flush to .gstack/*.log
-```
-
-Console messages, network requests, and dialog events each have their own buffer. Flushing happens every 1 second — the server appends only new entries since the last flush. This means:
-
-- HTTP request handling is never blocked by disk I/O
-- Logs survive server crashes (up to 1 second of data loss)
-- Memory is bounded (50K entries × 3 buffers)
-- Disk files are append-only, readable by external tools
-
-The `console`, `network`, and `dialog` commands read from the in-memory buffers, not disk. Disk files are for post-mortem debugging.
-
-## SKILL.md template system
-
-### The problem
-
-SKILL.md files tell Claude how to use the browse commands. If the docs list a flag that doesn't exist, or miss a command that was added, the agent hits errors. Hand-maintained docs always drift from code.
-
-### The solution
+세 가지 링 버퍼(각 50,000개, O(1) push)를 사용합니다.
 
 ```
-SKILL.md.tmpl          (human-written prose + placeholders)
+Browser events -> CircularBuffer (in-memory) -> Async flush to .gstack/*.log
+```
+
+콘솔, 네트워크, 다이얼로그 이벤트는 각각 독립 버퍼를 갖고 1초마다 비동기 flush합니다. 마지막 flush 이후 신규 항목만 append합니다.
+
+효과:
+
+- HTTP 요청 처리가 디스크 I/O에 막히지 않음
+- 서버 크래시 시에도 로그가 남음(최대 1초 손실)
+- 메모리 사용량 상한이 명확함(50K x 3)
+- 디스크 파일은 append-only라 외부 도구에서 읽기 쉬움
+
+`console`, `network`, `dialog` 명령은 디스크가 아니라 메모리 버퍼를 읽습니다. 디스크 파일은 사후 분석용입니다.
+
+## SKILL.md 템플릿 시스템
+
+### 문제
+
+SKILL.md는 Claude에게 browse 명령 사용법을 알려줍니다. 문서가 실제 구현과 어긋나면 에이전트 오류가 발생합니다. 사람이 수동 관리하는 문서는 코드와 드리프트가 생기기 쉽습니다.
+
+### 해결
+
+```
+SKILL.md.tmpl          (사람이 작성한 설명 + 플레이스홀더)
        ↓
-gen-skill-docs.ts      (reads source code metadata)
+gen-skill-docs.ts      (소스 코드 메타데이터 읽기)
        ↓
-SKILL.md               (committed, auto-generated sections)
+SKILL.md               (커밋되는 자동 생성 문서)
 ```
 
-Templates contain the workflows, tips, and examples that require human judgment. The `{{COMMAND_REFERENCE}}` and `{{SNAPSHOT_FLAGS}}` placeholders are filled from `commands.ts` and `snapshot.ts` at build time. This is structurally sound — if a command exists in code, it appears in docs. If it doesn't exist, it can't appear.
+템플릿에는 워크플로우, 팁, 예시처럼 사람 판단이 필요한 내용만 둡니다. `{{COMMAND_REFERENCE}}`, `{{SNAPSHOT_FLAGS}}`는 빌드 시 `commands.ts`, `snapshot.ts`에서 채웁니다. 코드에 있는 명령은 문서에 나오고, 코드에 없는 명령은 문서에 못 나오게 구조적으로 보장합니다.
 
-### Why committed, not generated at runtime?
+### 런타임 생성이 아니라 커밋하는 이유
 
-Three reasons:
+1. **스킬 로드시 즉시 읽혀야 함**: 사용자가 `/browse`를 실행할 때 별도 빌드 단계를 기대할 수 없습니다.
+2. **CI에서 최신성 검증 가능**: `gen:skill-docs --dry-run` + `git diff --exit-code`로 stale 문서를 merge 전에 차단합니다.
+3. **Git 추적성**: 명령 추가 시점과 커밋 맥락을 `git blame`으로 확인할 수 있습니다.
 
-1. **Claude reads SKILL.md at skill load time.** There's no build step when a user invokes `/browse`. The file must already exist and be correct.
-2. **CI can validate freshness.** `gen:skill-docs --dry-run` + `git diff --exit-code` catches stale docs before merge.
-3. **Git blame works.** You can see when a command was added and in which commit.
+### 테스트 계층
 
-### Test tiers
+| Tier | 내용 | 비용 | 속도 |
+|------|------|------|------|
+| 1 - 정적 검증 | SKILL.md의 `$B` 명령 파싱 후 레지스트리 대조 | 무료 | <2초 |
+| 2 - Agent SDK E2E | 실제 Claude 세션 생성 후 `/qa` 실행, 오류 점검 | 약 $0.50 | 약 60초 |
+| 3 - LLM-as-judge | Haiku가 문서 명확성/완결성/실행가능성 평가 | 약 $0.03 | 약 10초 |
 
-| Tier | What | Cost | Speed |
-|------|------|------|-------|
-| 1 — Static validation | Parse every `$B` command in SKILL.md, validate against registry | Free | <2s |
-| 2 — E2E via Agent SDK | Spawn real Claude session, run `/qa`, check for errors | ~$0.50 | ~60s |
-| 3 — LLM-as-judge | Haiku scores docs on clarity/completeness/actionability | ~$0.03 | ~10s |
+Tier 1은 매 `bun test`에서 실행하고, Tier 2/3은 env var로 게이트합니다. 무료 검증으로 대부분 이슈를 잡고, 판단이 필요한 영역에만 LLM 비용을 쓰는 전략입니다.
 
-Tier 1 runs on every `bun test`. Tier 2 and 3 are gated behind env vars. The idea is: catch 95% of issues for free, use LLMs only for the judgment calls.
+## 명령 디스패치
 
-## Command dispatch
+명령은 부작용 기준으로 분류됩니다.
 
-Commands are categorized by side effects:
+- **READ** (`text`, `html`, `links`, `console`, `cookies`...): 상태 변경 없음, 재시도 안전, 페이지 상태 반환
+- **WRITE** (`goto`, `click`, `fill`, `press`...): 페이지 상태 변경, 멱등 아님
+- **META** (`snapshot`, `screenshot`, `tabs`, `chain`...): read/write로 깔끔히 분류되지 않는 서버 레벨 작업
 
-- **READ** (text, html, links, console, cookies, ...): No mutations. Safe to retry. Returns page state.
-- **WRITE** (goto, click, fill, press, ...): Mutates page state. Not idempotent.
-- **META** (snapshot, screenshot, tabs, chain, ...): Server-level operations that don't fit neatly into read/write.
-
-This isn't just organizational. The server uses it for dispatch:
+분류는 단순 문서화가 아니라 실제 디스패치 로직에 사용됩니다.
 
 ```typescript
-if (READ_COMMANDS.has(cmd))  → handleReadCommand(cmd, args, bm)
-if (WRITE_COMMANDS.has(cmd)) → handleWriteCommand(cmd, args, bm)
-if (META_COMMANDS.has(cmd))  → handleMetaCommand(cmd, args, bm, shutdown)
+if (READ_COMMANDS.has(cmd))  -> handleReadCommand(cmd, args, bm)
+if (WRITE_COMMANDS.has(cmd)) -> handleWriteCommand(cmd, args, bm)
+if (META_COMMANDS.has(cmd))  -> handleMetaCommand(cmd, args, bm, shutdown)
 ```
 
-The `help` command returns all three sets so agents can self-discover available commands.
+`help` 명령은 세 집합을 모두 반환해서 에이전트가 가용 명령을 자가 탐색할 수 있게 합니다.
 
-## Error philosophy
+## 오류 철학
 
-Errors are for AI agents, not humans. Every error message must be actionable:
+오류 메시지는 사람이 아니라 AI 에이전트가 바로 행동할 수 있어야 합니다.
 
-- "Element not found" → "Element not found or not interactable. Run `snapshot -i` to see available elements."
-- "Selector matched multiple elements" → "Selector matched multiple elements. Use @refs from `snapshot` instead."
-- Timeout → "Navigation timed out after 30s. The page may be slow or the URL may be wrong."
+- "Element not found" -> "요소를 찾지 못했거나 상호작용 불가입니다. `snapshot -i`로 사용 가능한 요소를 확인하세요."
+- "Selector matched multiple elements" -> "여러 요소가 매칭되었습니다. `snapshot`의 @ref를 사용하세요."
+- Timeout -> "30초 내 탐색 완료 실패. 페이지가 느리거나 URL이 잘못되었을 수 있습니다."
 
-Playwright's native errors are rewritten through `wrapError()` to strip internal stack traces and add guidance. The agent should be able to read the error and know what to do next without human intervention.
+Playwright 원본 에러는 `wrapError()`에서 내부 스택을 제거하고 실행 가이드를 붙입니다. 사람이 개입하지 않아도 다음 행동을 결정할 수 있어야 합니다.
 
-### Crash recovery
+### 크래시 복구
 
-The server doesn't try to self-heal. If Chromium crashes (`browser.on('disconnected')`), the server exits immediately. The CLI detects the dead server on the next command and auto-restarts. This is simpler and more reliable than trying to reconnect to a half-dead browser process.
+서버는 self-heal을 시도하지 않습니다. Chromium이 크래시(`browser.on('disconnected')`)하면 서버는 즉시 종료합니다. CLI는 다음 명령에서 서버 종료를 감지하고 자동 재시작합니다. 반쯤 죽은 브라우저에 재연결하려는 복잡한 로직보다 단순하고 신뢰성이 높습니다.
 
-## What's intentionally not here
+## 의도적으로 넣지 않은 것
 
-- **No WebSocket streaming.** HTTP request/response is simpler, debuggable with curl, and fast enough. Streaming would add complexity for marginal benefit.
-- **No MCP protocol.** MCP adds JSON schema overhead per request and requires a persistent connection. Plain HTTP + plain text output is lighter on tokens and easier to debug.
-- **No multi-user support.** One server per workspace, one user. The token auth is defense-in-depth, not multi-tenancy.
-- **No Windows/Linux cookie decryption.** macOS Keychain is the only supported credential store. Linux (GNOME Keyring/kwallet) and Windows (DPAPI) are architecturally possible but not implemented.
-- **No iframe support.** Playwright can handle iframes but the ref system doesn't cross frame boundaries yet. This is the most-requested missing feature.
+- **WebSocket 스트리밍 없음**: HTTP request/response가 단순하고 `curl`로 디버깅 가능하며 충분히 빠릅니다.
+- **MCP 프로토콜 없음**: 요청마다 JSON schema 오버헤드와 지속 연결 요구가 있어, plain HTTP + plain text 대비 무겁습니다.
+- **멀티유저 지원 없음**: 워크스페이스당 서버 1개, 사용자 1명 가정입니다. 토큰 인증은 다중 테넌시가 아니라 defense-in-depth입니다.
+- **Windows/Linux 쿠키 복호화 없음**: 현재는 macOS Keychain만 지원합니다. Linux(GNOME Keyring/kwallet), Windows(DPAPI)는 구조적으로 가능하지만 미구현입니다.
+- **iframe 지원 없음**: Playwright는 iframe을 다룰 수 있지만 ref 시스템은 아직 프레임 경계를 넘지 않습니다. 가장 많이 요청되는 미구현 항목입니다.

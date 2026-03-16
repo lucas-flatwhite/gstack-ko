@@ -1,24 +1,24 @@
-# TODOS
+# 할 일
 
-## Auto-upgrade mode (zero-prompt)
+## 자동 업그레이드 모드(무프롬프트)
 
-**What:** Add a `GSTACK_AUTO_UPGRADE=1` env var or `~/.gstack/config` option that skips the AskUserQuestion prompt and upgrades automatically when a new version is detected.
+**무엇을:** `GSTACK_AUTO_UPGRADE=1` 환경변수 또는 `~/.gstack/config` 옵션을 추가해, 새 버전 감지 시 AskUserQuestion 프롬프트 없이 자동 업그레이드하도록 합니다.
 
-**Why:** Power users and CI environments may want zero-friction upgrades without being asked every time.
+**왜:** 파워 유저나 CI 환경에서는 매번 확인을 받지 않는 무마찰 업그레이드를 원할 수 있습니다.
 
-**Context:** The current upgrade system (v0.3.4) always prompts via AskUserQuestion. This TODO adds an opt-in bypass. Implementation is ~10 lines in the preamble instructions: check for the env var/config before calling AskUserQuestion, and if set, go straight to the upgrade flow. Depends on the full upgrade system being stable first — wait for user feedback on the prompt-based flow before adding this.
+**맥락:** 현재 업그레이드 시스템(v0.3.4)은 항상 AskUserQuestion으로 확인합니다. 이 TODO는 opt-in 우회 경로를 추가합니다. 구현은 프리앰블 지침에 약 10줄 수준입니다: AskUserQuestion 호출 전 env/config를 확인하고, 설정되어 있으면 업그레이드 플로우로 바로 진입합니다. 전체 업그레이드 시스템이 충분히 안정화된 뒤에 반영해야 하므로, 프롬프트 기반 플로우에 대한 사용자 피드백을 먼저 기다립니다.
 
-**Effort:** S (small)
-**Priority:** P3 (nice-to-have, revisit after adoption data)
+**작업량:** S (small)
+**우선순위:** P3 (있으면 좋음, 도입 데이터 확인 후 재검토)
 
-## Convert remaining skills to .tmpl files
+## 남은 스킬을 .tmpl 파일로 전환
 
-**What:** Convert ship/, review/, plan-ceo-review/, plan-eng-review/, retro/ SKILL.md files to .tmpl templates using the `{{UPDATE_CHECK}}` placeholder.
+**무엇을:** ship/, review/, plan-ceo-review/, plan-eng-review/, retro/의 SKILL.md를 `{{UPDATE_CHECK}}` 플레이스홀더를 사용하는 .tmpl 템플릿으로 전환합니다.
 
-**Why:** These 5 skills still have the update check preamble copy-pasted. When the preamble changes (like the `|| true` fix in v0.3.5), all 5 need manual updates. The `{{UPDATE_CHECK}}` resolver already exists in `scripts/gen-skill-docs.ts` — these skills just need to be converted.
+**왜:** 이 5개 스킬은 update check 프리앰블을 아직 복붙으로 유지하고 있습니다. 프리앰블이 바뀔 때(v0.3.5의 `|| true` 수정 같은 경우) 5개를 모두 수동 수정해야 합니다. `scripts/gen-skill-docs.ts`에는 `{{UPDATE_CHECK}}` 리졸버가 이미 있으므로, 대상 스킬만 변환하면 됩니다.
 
-**Context:** The browse-using skills (SKILL.md, browse/, qa/, setup-browser-cookies/) were converted to .tmpl in v0.3.5. The remaining 5 skills only use `{{UPDATE_CHECK}}` (no `{{BROWSE_SETUP}}`), so the conversion is mechanical: replace the preamble with `{{UPDATE_CHECK}}`, add the path to `findTemplates()` in `scripts/gen-skill-docs.ts`, and commit both .tmpl + generated .md.
+**맥락:** browse 계열 스킬(SKILL.md, browse/, qa/, setup-browser-cookies/)은 v0.3.5에서 .tmpl로 전환됐습니다. 남은 5개는 `{{UPDATE_CHECK}}`만 사용하고(`{{BROWSE_SETUP}}` 없음), 변환은 기계적입니다: 프리앰블을 `{{UPDATE_CHECK}}`로 교체하고, `scripts/gen-skill-docs.ts`의 `findTemplates()`에 경로를 추가한 뒤, .tmpl + 생성된 .md를 함께 커밋합니다.
 
-**Depends on:** v0.3.5 shipping first (the `{{UPDATE_CHECK}}` resolver).
-**Effort:** S (small, ~20 min)
-**Priority:** P2 (prevents drift on next preamble change)
+**의존성:** v0.3.5 선출시(`{{UPDATE_CHECK}}` 리졸버 포함).
+**작업량:** S (small, 약 20분)
+**우선순위:** P2 (다음 프리앰블 변경 시 드리프트 방지)

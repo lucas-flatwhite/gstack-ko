@@ -13,6 +13,8 @@ allowed-tools:
   - Write
   - AskUserQuestion
 ---
+<!-- AUTO-GENERATED from SKILL.md.tmpl — do not edit directly -->
+<!-- Regenerate: bun run gen:skill-docs -->
 
 ## Update Check (먼저 실행)
 
@@ -22,7 +24,7 @@ _UPD=$(~/.claude/skills/gstack/bin/gstack-update-check 2>/dev/null || .claude/sk
 ```
 
 출력이 `UPGRADE_AVAILABLE <old> <new>`이면 `~/.claude/skills/gstack/gstack-upgrade/SKILL.md`를 읽고 "Inline upgrade flow"를 따릅니다.
-`JUST_UPGRADED <from> <to>`이면 현재 버전을 사용자에게 알리고 계속합니다.
+`JUST_UPGRADED <from> <to>`이면 사용자에게 "gstack v{to}로 실행 중(방금 업데이트됨)"이라고 알리고 계속합니다.
 
 # /qa: 체계적인 QA 테스트
 
@@ -58,8 +60,8 @@ fi
 
 `NEEDS_SETUP`인 경우:
 1. 사용자에게 "gstack browse는 1회 빌드가 필요합니다(~10초). 진행할까요?"라고 묻고 대기합니다.
-2. `cd <SKILL_DIR> && ./setup` 실행.
-3. `bun`이 없으면 `curl -fsSL https://bun.sh/install | bash` 실행.
+2. `cd <SKILL_DIR> && ./setup` 실행
+3. `bun`이 없으면: `curl -fsSL https://bun.sh/install | bash` 실행
 
 **출력 디렉토리 생성:**
 
