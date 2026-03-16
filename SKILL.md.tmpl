@@ -14,7 +14,7 @@ allowed-tools:
 
 ---
 
-{{UPDATE_CHECK}}
+{{PREAMBLE}}
 
 # gstack browse: QA Testing & Dogfooding
 
@@ -102,6 +102,17 @@ $B viewport 375x812     # iPhone
 $B screenshot /tmp/mobile.png
 $B viewport 1440x900    # Desktop
 $B screenshot /tmp/desktop.png
+
+# Element screenshot (crop to specific element)
+$B screenshot "#hero-banner" /tmp/hero.png
+$B snapshot -i
+$B screenshot @e3 /tmp/button.png
+
+# Region crop
+$B screenshot --clip 0,0,800,600 /tmp/above-fold.png
+
+# Viewport only (no scroll)
+$B screenshot --viewport /tmp/viewport.png
 ```
 
 ### Test file upload

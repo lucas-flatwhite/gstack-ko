@@ -10,7 +10,7 @@
 
 **gstack은 Claude Code를 하나의 범용 어시스턴트에서 필요할 때 즉시 소환할 수 있는 전문가 팀으로 바꿔줍니다.**
 
-[Claude Code](https://docs.anthropic.com/en/docs/claude-code)를 위한 8개의 의견이 담긴 워크플로우 스킬. 계획 검토, 코드 리뷰, 원-커맨드 배포, 브라우저 자동화, QA 테스트, 엔지니어링 회고 — 모두 슬래시 커맨드로.
+[Claude Code](https://docs.anthropic.com/en/docs/claude-code)를 위한 9개의 의견이 담긴 워크플로우 스킬. 계획 검토, 코드 리뷰, 원-커맨드 배포, 브라우저 자동화, QA 테스트, 엔지니어링 회고 — 모두 슬래시 커맨드로.
 
 ### gstack 없이
 
@@ -31,6 +31,7 @@
 | `/ship` | 릴리스 엔지니어 | main 동기화, 테스트 실행, Greptile 리뷰 해결, 푸시, PR 생성. 준비된 브랜치용이며, 무엇을 만들지 결정하는 용도가 아닙니다. |
 | `/browse` | QA 엔지니어 | 에이전트에게 눈을 줍니다. 로그인하고, 앱을 클릭하고, 스크린샷을 찍고, 버그를 발견합니다. 60초 안에 전체 QA 통과. |
 | `/qa` | QA 리드 | 체계적인 QA 테스트. 기능 브랜치에서 diff를 자동 분석하고, 영향받는 페이지를 식별하고, 테스트합니다. 전체 탐험, 빠른 스모크 테스트, 회귀 모드도 지원. |
+| `/qa-only` | QA 리포터 | `/qa`와 같은 방법론으로 테스트하되 코드 수정은 절대 하지 않고 리포트만 제공합니다. |
 | `/setup-browser-cookies` | 세션 매니저 | 실제 브라우저(Comet, Chrome, Arc, Brave, Edge)의 쿠키를 헤드리스 세션으로 가져옵니다. 수동 로그인 없이 인증된 페이지를 테스트합니다. |
 | `/retro` | 엔지니어링 매니저 | 팀 인식형 회고: 당신의 심층 분석 + 모든 기여자의 개인별 칭찬과 성장 기회. |
 
@@ -110,11 +111,11 @@ gstack은 하나의 Claude Code 세션으로도 강력합니다. 10개면 판도
 
 Claude Code를 열고 다음을 붙여넣으세요. Claude가 나머지를 처리합니다.
 
-> gstack-ko를 설치해줘: `git clone https://github.com/lucas-flatwhite/gstack-ko.git ~/.claude/skills/gstack && cd ~/.claude/skills/gstack && ./setup` 를 실행하고, CLAUDE.md에 "gstack" 섹션을 추가해서 모든 웹 브라우징에는 gstack의 /browse 스킬을 사용하고, mcp\_\_claude-in-chrome\_\_\* 도구는 절대 사용하지 말고, 사용 가능한 스킬을 나열해줘: /plan-ceo-review, /plan-eng-review, /review, /ship, /browse, /qa, /setup-browser-cookies, /retro. 그런 다음 현재 프로젝트에도 gstack을 추가해서 팀원들이 사용할 수 있게 할지 물어봐.
+> gstack-ko를 설치해줘: `git clone https://github.com/lucas-flatwhite/gstack-ko.git ~/.claude/skills/gstack && cd ~/.claude/skills/gstack && ./setup` 를 실행하고, CLAUDE.md에 "gstack" 섹션을 추가해서 모든 웹 브라우징에는 gstack의 /browse 스킬을 사용하고, mcp\_\_claude-in-chrome\_\_\* 도구는 절대 사용하지 말고, 사용 가능한 스킬을 나열해줘: /plan-ceo-review, /plan-eng-review, /review, /ship, /browse, /qa, /qa-only, /setup-browser-cookies, /retro. 그런 다음 현재 프로젝트에도 gstack을 추가해서 팀원들이 사용할 수 있게 할지 물어봐.
 
 ### Step 2: 팀원들도 쓸 수 있도록 저장소에 추가 (선택사항)
 
-> 이 프로젝트에 gstack을 추가해줘: `cp -Rf ~/.claude/skills/gstack .claude/skills/gstack && rm -rf .claude/skills/gstack/.git && cd .claude/skills/gstack && ./setup` 를 실행하고, 이 프로젝트의 CLAUDE.md에 "gstack" 섹션을 추가해서 모든 웹 브라우징에는 gstack의 /browse 스킬을 사용하고, mcp\_\_claude-in-chrome\_\_\* 도구는 절대 사용하지 말고, 사용 가능한 스킬을 나열하고(/plan-ceo-review, /plan-eng-review, /review, /ship, /browse, /qa, /setup-browser-cookies, /retro), gstack 스킬이 동작하지 않으면 `cd .claude/skills/gstack && ./setup`을 실행해서 바이너리를 빌드하고 스킬을 등록하라고 알려줘.
+> 이 프로젝트에 gstack을 추가해줘: `cp -Rf ~/.claude/skills/gstack .claude/skills/gstack && rm -rf .claude/skills/gstack/.git && cd .claude/skills/gstack && ./setup` 를 실행하고, 이 프로젝트의 CLAUDE.md에 "gstack" 섹션을 추가해서 모든 웹 브라우징에는 gstack의 /browse 스킬을 사용하고, mcp\_\_claude-in-chrome\_\_\* 도구는 절대 사용하지 말고, 사용 가능한 스킬을 나열하고(/plan-ceo-review, /plan-eng-review, /review, /ship, /browse, /qa, /qa-only, /setup-browser-cookies, /retro), gstack 스킬이 동작하지 않으면 `cd .claude/skills/gstack && ./setup`을 실행해서 바이너리를 빌드하고 스킬을 등록하라고 알려줘.
 
 실제 파일이 저장소에 커밋됩니다(서브모듈이 아님), 그래서 `git clone`만으로 바로 동작합니다. 바이너리와 node\_modules는 gitignore에 포함 — 팀원들은 빌드를 위해 `cd .claude/skills/gstack && ./setup`을 한 번만 실행하면 됩니다 (또는 `/browse`가 처음 사용 시 자동으로 처리합니다).
 

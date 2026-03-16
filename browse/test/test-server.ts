@@ -9,64 +9,40 @@ import * as fs from 'fs';
 const FIXTURES_DIR = path.resolve(import.meta.dir, 'fixtures');
 
 export function startTestServer(port: number = 0): { server: ReturnType<typeof Bun.serve>; url: string } {
-  const portsToTry: number[] = [];
-  if (port > 0) {
-    portsToTry.push(port);
-  } else {
-    portsToTry.push(0);
-    for (let i = 0; i < 20; i++) {
-      portsToTry.push(46000 + i);
-    }
-  }
+  const server = Bun.serve({
+    port,
+    hostname: '127.0.0.1',
+    fetch(req) {
+      const url = new URL(req.url);
 
-  let server: ReturnType<typeof Bun.serve> | null = null;
-  let lastError: unknown;
+      // Echo endpoint — returns request headers as JSON
+      if (url.pathname === '/echo') {
+        const headers: Record<string, string> = {};
+        req.headers.forEach((value, key) => { headers[key] = value; });
+        return new Response(JSON.stringify(headers, null, 2), {
+          headers: { 'Content-Type': 'application/json' },
+        });
+      }
 
-  for (const candidatePort of portsToTry) {
-    try {
-      server = Bun.serve({
-        port: candidatePort,
-        hostname: '127.0.0.1',
-        fetch(req) {
-          const url = new URL(req.url);
+      let filePath = url.pathname === '/' ? '/basic.html' : url.pathname;
 
-          // Echo endpoint — returns request headers as JSON
-          if (url.pathname === '/echo') {
-            const headers: Record<string, string> = {};
-            req.headers.forEach((value, key) => { headers[key] = value; });
-            return new Response(JSON.stringify(headers, null, 2), {
-              headers: { 'Content-Type': 'application/json' },
-            });
-          }
+      // Remove leading slash
+      filePath = filePath.replace(/^\//, '');
+      const fullPath = path.join(FIXTURES_DIR, filePath);
 
-          let filePath = url.pathname === '/' ? '/basic.html' : url.pathname;
+      if (!fs.existsSync(fullPath)) {
+        return new Response('Not Found', { status: 404 });
+      }
 
-          // Remove leading slash
-          filePath = filePath.replace(/^\//, '');
-          const fullPath = path.join(FIXTURES_DIR, filePath);
+      const content = fs.readFileSync(fullPath, 'utf-8');
+      const ext = path.extname(fullPath);
+      const contentType = ext === '.html' ? 'text/html' : 'text/plain';
 
-          if (!fs.existsSync(fullPath)) {
-            return new Response('Not Found', { status: 404 });
-          }
-
-          const content = fs.readFileSync(fullPath, 'utf-8');
-          const ext = path.extname(fullPath);
-          const contentType = ext === '.html' ? 'text/html' : 'text/plain';
-
-          return new Response(content, {
-            headers: { 'Content-Type': contentType },
-          });
-        },
+      return new Response(content, {
+        headers: { 'Content-Type': contentType },
       });
-      break;
-    } catch (error) {
-      lastError = error;
-    }
-  }
-
-  if (!server) {
-    throw lastError;
-  }
+    },
+  });
 
   const url = `http://127.0.0.1:${server.port}`;
   return { server, url };
