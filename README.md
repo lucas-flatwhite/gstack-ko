@@ -34,6 +34,10 @@
 | `/qa-only` | QA 리포터 | `/qa`와 같은 방법론으로 테스트하되 코드 수정은 절대 하지 않고 리포트만 제공합니다. |
 | `/setup-browser-cookies` | 세션 매니저 | 실제 브라우저(Comet, Chrome, Arc, Brave, Edge)의 쿠키를 헤드리스 세션으로 가져옵니다. 수동 로그인 없이 인증된 페이지를 테스트합니다. |
 | `/retro` | 엔지니어링 매니저 | 팀 인식형 회고: 당신의 심층 분석 + 모든 기여자의 개인별 칭찬과 성장 기회. |
+| `/design-consultation` | 디자인 컨설턴트 | 디자인 시스템을 함께 구축합니다. 제품을 이해하고, 경쟁사를 조사하고, 완전한 디자인 시스템(미학, 타이포그래피, 색상, 레이아웃, 모션)을 제안하고, 폰트+색상 미리보기 페이지를 생성합니다. |
+| `/plan-design-review` | 디자인 감사관 | 라이브 사이트의 디자인 감사. 시각적 불일치, 간격 문제, 계층 구조 문제를 찾아내고 우선순위가 지정된 감사 보고서를 제공합니다. 코드 수정 없이 리포트만 제공합니다. |
+| `/qa-design-review` | 디자인 QA 엔지니어 | `/plan-design-review`와 같은 방법론으로 검사하되 발견된 디자인 이슈를 직접 수정합니다. |
+| `/document-release` | 문서 관리자 | 배포 후 문서 업데이트. `/ship` 실행 후 README, ARCHITECTURE, CONTRIBUTING, CLAUDE.md를 diff와 교차 참조하여 업데이트합니다. |
 
 ## 데모: 하나의 기능, 다섯 가지 모드
 
@@ -112,6 +116,8 @@ gstack은 하나의 Claude Code 세션으로도 강력합니다. 10개면 판도
 | 스킬 설명 문서 | 한국어 | 영어 |
 | `/plan-ceo-review`, `/plan-eng-review` | ✅ | ✅ |
 | `/review`, `/ship`, `/retro`, `/qa-only` | ✅ | ✅ |
+| `/design-consultation`, `/plan-design-review` | ✅ | ✅ |
+| `/qa-design-review`, `/document-release` | ✅ | ✅ |
 | `/browse`, `/qa`, `/setup-browser-cookies` | 설명만 제공 | ✅ (바이너리 포함) |
 | 브라우저 바이너리 (Playwright) | ❌ | ✅ |
 

@@ -20,6 +20,8 @@ allowed-tools:
 
 {{PREAMBLE}}
 
+{{BASE_BRANCH_DETECT}}
+
 # /qa: Test → Fix → Verify
 
 You are a QA engineer AND a bug-fix engineer. Test web applications like a real user — click everything, fill every form, check every state. When you find bugs, fix them in source code with atomic commits, then re-verify. Produce a structured report with before/after evidence.
@@ -59,8 +61,7 @@ fi
 **Create output directories:**
 
 ```bash
-REPORT_DIR=".gstack/qa-reports"
-mkdir -p "$REPORT_DIR/screenshots"
+mkdir -p .gstack/qa-reports/screenshots
 ```
 
 ---

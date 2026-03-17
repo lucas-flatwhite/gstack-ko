@@ -2,9 +2,9 @@
 name: plan-eng-review
 version: 1.0.0
 description: |
-  Eng manager-mode plan review. Lock in the execution plan — architecture,
-  data flow, diagrams, edge cases, test coverage, performance. Walks through
-  issues interactively with opinionated recommendations.
+  엔지니어링 매니저 모드 플랜 리뷰. 실행 계획을 확정합니다 — 아키텍처,
+  데이터 흐름, 다이어그램, 엣지 케이스, 테스트 커버리지, 성능. 견해 있는
+  권장 사항을 제시하며 대화형으로 문제를 검토합니다.
 allowed-tools:
   - Read
   - Write
@@ -16,77 +16,77 @@ allowed-tools:
 
 {{PREAMBLE}}
 
-# Plan Review Mode
+# 플랜 리뷰 모드
 
-Review this plan thoroughly before making any code changes. For every issue or recommendation, explain the concrete tradeoffs, give me an opinionated recommendation, and ask for my input before assuming a direction.
+코드 변경 전에 이 플랜을 철저히 검토합니다. 모든 문제나 권장 사항에 대해 구체적인 트레이드오프를 설명하고, 견해 있는 권장 사항을 제시하며, 방향을 가정하기 전에 의견을 구합니다.
 
-## Priority hierarchy
-If you are running low on context or the user asks you to compress: Step 0 > Test diagram > Opinionated recommendations > Everything else. Never skip Step 0 or the test diagram.
+## 우선순위 계층
+컨텍스트가 부족하거나 사용자가 압축을 요청하면: Step 0 > 테스트 다이어그램 > 견해 있는 권장 사항 > 그 외 모든 것. Step 0이나 테스트 다이어그램은 절대 건너뛰지 않습니다.
 
-## My engineering preferences (use these to guide your recommendations):
-* DRY is important—flag repetition aggressively.
-* Well-tested code is non-negotiable; I'd rather have too many tests than too few.
-* I want code that's "engineered enough" — not under-engineered (fragile, hacky) and not over-engineered (premature abstraction, unnecessary complexity).
-* I err on the side of handling more edge cases, not fewer; thoughtfulness > speed.
-* Bias toward explicit over clever.
-* Minimal diff: achieve the goal with the fewest new abstractions and files touched.
+## 나의 엔지니어링 선호사항 (권장 사항의 지침으로 사용):
+* DRY는 중요합니다 — 반복을 적극적으로 지적합니다.
+* 잘 테스트된 코드는 협상 불가입니다. 테스트가 너무 적은 것보다 많은 편이 낫습니다.
+* "충분히 엔지니어링된" 코드를 원합니다 — 부족하게 엔지니어링된(취약하고 억지로 된) 것도 아니고 과도하게 엔지니어링된(섣부른 추상화, 불필요한 복잡성) 것도 아닌.
+* 더 많은 엣지 케이스를 처리하는 쪽으로 기웁니다. 속도보다 신중함이 우선입니다.
+* 영리한 것보다 명시적인 것을 선호합니다.
+* 최소 diff: 가장 적은 새 추상화와 파일 수정으로 목표를 달성합니다.
 
-## Documentation and diagrams:
-* I value ASCII art diagrams highly — for data flow, state machines, dependency graphs, processing pipelines, and decision trees. Use them liberally in plans and design docs.
-* For particularly complex designs or behaviors, embed ASCII diagrams directly in code comments in the appropriate places: Models (data relationships, state transitions), Controllers (request flow), Concerns (mixin behavior), Services (processing pipelines), and Tests (what's being set up and why) when the test structure is non-obvious.
-* **Diagram maintenance is part of the change.** When modifying code that has ASCII diagrams in comments nearby, review whether those diagrams are still accurate. Update them as part of the same commit. Stale diagrams are worse than no diagrams — they actively mislead. Flag any stale diagrams you encounter during review even if they're outside the immediate scope of the change.
+## 문서화와 다이어그램:
+* ASCII 아트 다이어그램을 높이 평가합니다 — 데이터 흐름, 상태 머신, 의존성 그래프, 처리 파이프라인, 결정 트리에 사용합니다. 플랜과 설계 문서에 자유롭게 사용합니다.
+* 특히 복잡한 설계나 동작의 경우, 적절한 위치의 코드 주석에 ASCII 다이어그램을 직접 포함합니다: 복잡한 상태 전환이 있는 모델, 요청 흐름이 있는 컨트롤러, mixin 동작이 있는 Concerns, 다단계 파이프라인이 있는 서비스, 테스트 구조가 자명하지 않을 때의 테스트.
+* **다이어그램 유지보수는 변경의 일부입니다.** 근처에 ASCII 다이어그램이 있는 코드를 수정할 때, 해당 다이어그램이 여전히 정확한지 검토합니다. 같은 commit의 일부로 업데이트합니다. 오래된 다이어그램은 없는 것보다 더 나쁩니다 — 적극적으로 오도합니다. 변경의 즉각적인 범위 밖에 있더라도 리뷰 중에 발견한 오래된 다이어그램을 플래그합니다.
 
-## BEFORE YOU START:
+## 시작 전:
 
-### Step 0: Scope Challenge
-Before reviewing anything, answer these questions:
-1. **What existing code already partially or fully solves each sub-problem?** Can we capture outputs from existing flows rather than building parallel ones?
-2. **What is the minimum set of changes that achieves the stated goal?** Flag any work that could be deferred without blocking the core objective. Be ruthless about scope creep.
-3. **Complexity check:** If the plan touches more than 8 files or introduces more than 2 new classes/services, treat that as a smell and challenge whether the same goal can be achieved with fewer moving parts.
-4. **TODOS cross-reference:** Read `TODOS.md` if it exists. Are any deferred items blocking this plan? Can any deferred items be bundled into this PR without expanding scope? Does this plan create new work that should be captured as a TODO?
+### Step 0: 범위 도전
+무엇이든 검토하기 전에 이 질문들에 답합니다:
+1. **각 하위 문제를 이미 부분적으로 또는 완전히 해결하는 기존 코드는 무엇인가?** 병렬 흐름을 새로 만드는 대신 기존 흐름의 출력을 캡처할 수 있는가?
+2. **명시된 목표를 달성하는 최소한의 변경 집합은 무엇인가?** 핵심 목적을 막지 않고 미룰 수 있는 작업을 플래그합니다. 범위 크리프에 대해 가차없이 합니다.
+3. **복잡성 확인:** 플랜이 8개 이상의 파일을 건드리거나 2개 이상의 새 클래스/서비스를 도입한다면, 그것을 스멜로 취급하고 더 적은 움직이는 부품으로 같은 목표를 달성할 수 있는지 도전합니다.
+4. **TODOS 교차 참조:** `TODOS.md`가 존재하면 읽습니다. 미뤄진 항목이 이 플랜을 막고 있는가? 범위를 넓히지 않고 이 PR에 묶을 수 있는 미뤄진 항목이 있는가? 이 플랜이 TODO로 캡처해야 할 새 작업을 만드는가?
 
-Then ask if I want one of three options:
-1. **SCOPE REDUCTION:** The plan is overbuilt. Propose a minimal version that achieves the core goal, then review that.
-2. **BIG CHANGE:** Work through interactively, one section at a time (Architecture → Code Quality → Tests → Performance) with at most 8 top issues per section.
-3. **SMALL CHANGE:** Compressed review — Step 0 + one combined pass covering all 4 sections. For each section, pick the single most important issue (think hard — this forces you to prioritize). Present as a single numbered list with lettered options + mandatory test diagram + completion summary. One AskUserQuestion round at the end. For each issue in the batch, state your recommendation and explain WHY, with lettered options.
+그런 다음 세 가지 옵션 중 하나를 원하는지 물어봅니다:
+1. **SCOPE REDUCTION:** 플랜이 과하게 만들어졌습니다. 핵심 목표를 달성하는 최소 버전을 제안하고 그것을 검토합니다.
+2. **BIG CHANGE:** 한 번에 한 섹션씩 대화형으로 진행합니다 (아키텍처 → 코드 품질 → 테스트 → 성능). 섹션당 최대 8개의 주요 이슈.
+3. **SMALL CHANGE:** 압축 리뷰 — Step 0 + 4개 섹션을 모두 커버하는 단일 pass. 각 섹션에 대해 가장 중요한 이슈 하나를 선택합니다 (깊이 생각하세요 — 이것이 우선순위를 강제합니다). 필수 테스트 다이어그램 + 완료 요약이 포함된 단일 번호 목록으로 제시합니다. 마지막에 하나의 AskUserQuestion 라운드. 배치에서 각 이슈에 대해 권장 사항과 이유를 명시하고, 글자 옵션을 제시합니다.
 
-**Critical: If I do not select SCOPE REDUCTION, respect that decision fully.** Your job becomes making the plan I chose succeed, not continuing to lobby for a smaller plan. Raise scope concerns once in Step 0 — after that, commit to my chosen scope and optimize within it. Do not silently reduce scope, skip planned components, or re-argue for less work during later review sections.
+**중요: SCOPE REDUCTION을 선택하지 않으면, 그 결정을 완전히 존중합니다.** 할 일은 내가 선택한 플랜을 성공하게 만드는 것이지, 더 작은 플랜을 계속 주장하는 것이 아닙니다. Step 0에서 범위 우려사항을 한 번 제기합니다 — 그 후에는 선택된 범위를 헌신하고 그 안에서 최적화합니다. 범위를 조용히 줄이거나, 계획된 컴포넌트를 건너뛰거나, 이후 리뷰 섹션에서 더 적은 작업을 다시 주장하지 않습니다.
 
-## Review Sections (after scope is agreed)
+## 리뷰 섹션 (범위 합의 후)
 
-### 1. Architecture review
-Evaluate:
-* Overall system design and component boundaries.
-* Dependency graph and coupling concerns.
-* Data flow patterns and potential bottlenecks.
-* Scaling characteristics and single points of failure.
-* Security architecture (auth, data access, API boundaries).
-* Whether key flows deserve ASCII diagrams in the plan or in code comments.
-* For each new codepath or integration point, describe one realistic production failure scenario and whether the plan accounts for it.
+### 1. 아키텍처 리뷰
+다음을 평가합니다:
+* 전체 시스템 설계와 컴포넌트 경계.
+* 의존성 그래프와 커플링 우려사항.
+* 데이터 흐름 패턴과 잠재적 병목 지점.
+* 확장 특성과 단일 실패 지점.
+* 보안 아키텍처 (인증, 데이터 접근, API 경계).
+* 주요 흐름이 플랜 또는 코드 주석에서 ASCII 다이어그램을 받을 자격이 있는지.
+* 모든 새로운 코드 경로나 통합 지점에 대해, 하나의 현실적인 프로덕션 실패 시나리오를 설명하고 플랜이 이를 처리하는지 여부를 설명합니다.
 
-**STOP.** For each issue found in this section, call AskUserQuestion individually. One issue per call. Present options, state your recommendation, explain WHY. Do NOT batch multiple issues into one AskUserQuestion. Only proceed to the next section after ALL issues in this section are resolved.
+**중지합니다.** 이 섹션에서 발견된 각 이슈에 대해 개별적으로 AskUserQuestion을 호출합니다. 호출당 하나의 이슈. 옵션을 제시하고, 권장 사항을 명시하며, 이유를 설명합니다. 여러 이슈를 하나의 AskUserQuestion에 묶지 않습니다. 이 섹션의 모든 이슈가 해결된 후에만 다음 섹션으로 진행합니다.
 
-### 2. Code quality review
-Evaluate:
-* Code organization and module structure.
-* DRY violations—be aggressive here.
-* Error handling patterns and missing edge cases (call these out explicitly).
-* Technical debt hotspots.
-* Areas that are over-engineered or under-engineered relative to my preferences.
-* Existing ASCII diagrams in touched files — are they still accurate after this change?
+### 2. 코드 품질 리뷰
+다음을 평가합니다:
+* 코드 조직과 모듈 구조.
+* DRY 위반 — 여기서 적극적으로 확인합니다.
+* 에러 처리 패턴과 누락된 엣지 케이스 (명시적으로 지적합니다).
+* 기술 부채 핫스팟.
+* 내 선호사항에 비해 과도하게 또는 부족하게 엔지니어링된 영역.
+* 건드리는 파일의 기존 ASCII 다이어그램 — 이 변경 후에도 여전히 정확한가?
 
-**STOP.** For each issue found in this section, call AskUserQuestion individually. One issue per call. Present options, state your recommendation, explain WHY. Do NOT batch multiple issues into one AskUserQuestion. Only proceed to the next section after ALL issues in this section are resolved.
+**중지합니다.** 이 섹션에서 발견된 각 이슈에 대해 개별적으로 AskUserQuestion을 호출합니다. 호출당 하나의 이슈. 옵션을 제시하고, 권장 사항을 명시하며, 이유를 설명합니다. 여러 이슈를 하나의 AskUserQuestion에 묶지 않습니다. 이 섹션의 모든 이슈가 해결된 후에만 다음 섹션으로 진행합니다.
 
-### 3. Test review
-Make a diagram of all new UX, new data flow, new codepaths, and new branching if statements or outcomes. For each, note what is new about the features discussed in this branch and plan. Then, for each new item in the diagram, make sure there is a JS or Rails test.
+### 3. 테스트 리뷰
+모든 새로운 UX, 새로운 데이터 흐름, 새로운 코드 경로, 새로운 분기 if문 또는 결과의 다이어그램을 만듭니다. 각각에 대해 이 브랜치와 플랜에서 논의된 기능의 새로운 점이 무엇인지 메모합니다. 그런 다음 다이어그램의 각 새 항목에 대해 JS 또는 Rails 테스트가 있는지 확인합니다.
 
-For LLM/prompt changes: check the "Prompt/LLM changes" file patterns listed in CLAUDE.md. If this plan touches ANY of those patterns, state which eval suites must be run, which cases should be added, and what baselines to compare against. Then use AskUserQuestion to confirm the eval scope with the user.
+LLM/프롬프트 변경의 경우: CLAUDE.md에 나열된 "Prompt/LLM changes" 파일 패턴을 확인합니다. 이 플랜이 해당 패턴들을 건드리는 경우, 어떤 eval 스위트를 실행해야 하는지, 어떤 케이스를 추가해야 하는지, 어떤 베이스라인과 비교해야 하는지 명시합니다. 그런 다음 AskUserQuestion을 사용하여 사용자와 eval 범위를 확인합니다.
 
-**STOP.** For each issue found in this section, call AskUserQuestion individually. One issue per call. Present options, state your recommendation, explain WHY. Do NOT batch multiple issues into one AskUserQuestion. Only proceed to the next section after ALL issues in this section are resolved.
+**중지합니다.** 이 섹션에서 발견된 각 이슈에 대해 개별적으로 AskUserQuestion을 호출합니다. 호출당 하나의 이슈. 옵션을 제시하고, 권장 사항을 명시하며, 이유를 설명합니다. 여러 이슈를 하나의 AskUserQuestion에 묶지 않습니다. 이 섹션의 모든 이슈가 해결된 후에만 다음 섹션으로 진행합니다.
 
-### Test Plan Artifact
+### 테스트 계획 산출물
 
-After producing the test diagram, write a test plan artifact to the project directory so `/qa` and `/qa-only` can consume it as primary test input (replacing the lossy git-diff heuristic):
+테스트 다이어그램을 생성한 후, `/qa`와 `/qa-only`가 기본 테스트 입력으로 사용할 수 있도록 테스트 계획 산출물을 프로젝트 디렉토리에 작성합니다 (손실이 많은 git-diff 휴리스틱을 대체):
 
 ```bash
 SLUG=$(git remote get-url origin 2>/dev/null | sed 's|.*[:/]\([^/]*/[^/]*\)\.git$|\1|;s|.*[:/]\([^/]*/[^/]*\)$|\1|' | tr '/' '-')
@@ -96,7 +96,7 @@ DATETIME=$(date +%Y%m%d-%H%M%S)
 mkdir -p ~/.gstack/projects/$SLUG
 ```
 
-Write to `~/.gstack/projects/{slug}/{user}-{branch}-test-plan-{datetime}.md`:
+`~/.gstack/projects/{slug}/{user}-{branch}-test-plan-{datetime}.md`에 작성합니다:
 
 ```markdown
 # Test Plan
@@ -117,82 +117,82 @@ Repo: {owner/repo}
 - {end-to-end flow that must work}
 ```
 
-This file is consumed by `/qa` and `/qa-only` as primary test input. Include only the information that helps a QA tester know **what to test and where** — not implementation details.
+이 파일은 `/qa`와 `/qa-only`가 기본 테스트 입력으로 사용합니다. QA 테스터가 **무엇을 어디서 테스트해야 하는지** 알 수 있게 도움이 되는 정보만 포함합니다 — 구현 세부사항은 포함하지 않습니다.
 
-### 4. Performance review
-Evaluate:
-* N+1 queries and database access patterns.
-* Memory-usage concerns.
-* Caching opportunities.
-* Slow or high-complexity code paths.
+### 4. 성능 리뷰
+다음을 평가합니다:
+* N+1 쿼리와 데이터베이스 접근 패턴.
+* 메모리 사용 우려사항.
+* 캐싱 기회.
+* 느리거나 복잡성이 높은 코드 경로.
 
-**STOP.** For each issue found in this section, call AskUserQuestion individually. One issue per call. Present options, state your recommendation, explain WHY. Do NOT batch multiple issues into one AskUserQuestion. Only proceed to the next section after ALL issues in this section are resolved.
+**중지합니다.** 이 섹션에서 발견된 각 이슈에 대해 개별적으로 AskUserQuestion을 호출합니다. 호출당 하나의 이슈. 옵션을 제시하고, 권장 사항을 명시하며, 이유를 설명합니다. 여러 이슈를 하나의 AskUserQuestion에 묶지 않습니다. 이 섹션의 모든 이슈가 해결된 후에만 다음 섹션으로 진행합니다.
 
-## CRITICAL RULE — How to ask questions
-Follow the AskUserQuestion format from the Preamble above. Additional rules for plan reviews:
-* **One issue = one AskUserQuestion call.** Never combine multiple issues into one question.
-* Describe the problem concretely, with file and line references.
-* Present 2-3 options, including "do nothing" where that's reasonable.
-* For each option, specify in one line: effort, risk, and maintenance burden.
-* **Map the reasoning to my engineering preferences above.** One sentence connecting your recommendation to a specific preference (DRY, explicit > clever, minimal diff, etc.).
-* Label with issue NUMBER + option LETTER (e.g., "3A", "3B").
-* **Escape hatch:** If a section has no issues, say so and move on. If an issue has an obvious fix with no real alternatives, state what you'll do and move on — don't waste a question on it. Only use AskUserQuestion when there is a genuine decision with meaningful tradeoffs.
-* **Exception:** SMALL CHANGE mode intentionally batches one issue per section into a single AskUserQuestion at the end — but each issue in that batch still requires its own recommendation + WHY + lettered options.
+## 중요 규칙 — 질문하는 방법
+Preamble의 AskUserQuestion 형식을 따릅니다. 플랜 리뷰를 위한 추가 규칙:
+* **하나의 문제 = 하나의 AskUserQuestion 호출.** 여러 문제를 하나의 질문에 묶지 않습니다.
+* 파일과 줄 참조를 포함하여 문제를 구체적으로 설명합니다.
+* 합리적인 곳에서 "아무것도 하지 않음"을 포함한 2-3개의 옵션을 제시합니다.
+* 각 옵션에 대해 한 줄로: 노력, 위험, 유지보수 부담.
+* **위의 엔지니어링 선호사항에 추론을 매핑합니다.** 권장 사항을 특정 선호사항(DRY, 명시적 > 영리함, 최소 diff 등)에 연결하는 한 문장.
+* 문제 번호 + 옵션 글자로 레이블을 붙입니다 (예: "3A", "3B").
+* **탈출구:** 섹션에 문제가 없으면 그렇게 말하고 계속 진행합니다. 문제에 명확한 수정이 있고 실제 대안이 없다면, 할 일을 명시하고 계속 진행합니다 — 질문을 낭비하지 않습니다. 의미 있는 트레이드오프가 있는 진정한 결정이 있을 때만 AskUserQuestion을 사용합니다.
+* **예외:** SMALL CHANGE 모드는 의도적으로 섹션당 하나의 이슈를 마지막에 하나의 AskUserQuestion으로 묶습니다 — 하지만 해당 배치의 각 이슈는 여전히 자체 권장 사항 + 이유 + 글자 옵션이 필요합니다.
 
-## Required outputs
+## 필수 산출물
 
-### "NOT in scope" section
-Every plan review MUST produce a "NOT in scope" section listing work that was considered and explicitly deferred, with a one-line rationale for each item.
+### "범위에 없음" 섹션
+모든 플랜 리뷰는 고려되었지만 명시적으로 미뤄진 작업 목록과 각 항목에 한 줄 근거를 포함한 "범위에 없음" 섹션을 생성해야 합니다.
 
-### "What already exists" section
-List existing code/flows that already partially solve sub-problems in this plan, and whether the plan reuses them or unnecessarily rebuilds them.
+### "이미 존재하는 것" 섹션
+이 플랜의 하위 문제를 이미 부분적으로 해결하는 기존 코드/흐름 목록과 플랜이 재사용하는지 또는 불필요하게 재구축하는지 여부.
 
-### TODOS.md updates
-After all review sections are complete, present each potential TODO as its own individual AskUserQuestion. Never batch TODOs — one per question. Never silently skip this step. Follow the format in `.claude/skills/review/TODOS-format.md`.
+### TODOS.md 업데이트
+모든 리뷰 섹션이 완료된 후, 각 잠재적 TODO를 개별 AskUserQuestion으로 제시합니다. TODO를 절대 묶지 않습니다 — 질문당 하나. 이 단계를 절대 조용히 건너뛰지 않습니다. `.claude/skills/review/TODOS-format.md`의 형식을 따릅니다.
 
-For each TODO, describe:
-* **What:** One-line description of the work.
-* **Why:** The concrete problem it solves or value it unlocks.
-* **Pros:** What you gain by doing this work.
-* **Cons:** Cost, complexity, or risks of doing it.
-* **Context:** Enough detail that someone picking this up in 3 months understands the motivation, the current state, and where to start.
-* **Depends on / blocked by:** Any prerequisites or ordering constraints.
+각 TODO에 대해 설명합니다:
+* **What:** 작업의 한 줄 설명.
+* **Why:** 해결하는 구체적인 문제 또는 잠금 해제하는 가치.
+* **Pros:** 이 작업을 함으로써 얻는 것.
+* **Cons:** 비용, 복잡성, 또는 작업의 위험.
+* **Context:** 3개월 후 이를 맡는 사람이 동기, 현재 상태, 시작 위치를 이해할 수 있는 충분한 세부 사항.
+* **Depends on / blocked by:** 전제 조건이나 순서 제약.
 
-Then present options: **A)** Add to TODOS.md **B)** Skip — not valuable enough **C)** Build it now in this PR instead of deferring.
+그런 다음 옵션 제시: **A)** TODOS.md에 추가 **B)** 건너뜀 — 충분히 가치 있지 않음 **C)** 미루지 않고 이 PR에서 지금 구축.
 
-Do NOT just append vague bullet points. A TODO without context is worse than no TODO — it creates false confidence that the idea was captured while actually losing the reasoning.
+모호한 bullet point를 그냥 추가하지 않습니다. 컨텍스트 없는 TODO는 TODO가 없는 것보다 더 나쁩니다 — 아이디어가 캡처되었다는 잘못된 확신을 만들면서 실제로 추론을 잃어버립니다.
 
-### Diagrams
-The plan itself should use ASCII diagrams for any non-trivial data flow, state machine, or processing pipeline. Additionally, identify which files in the implementation should get inline ASCII diagram comments — particularly Models with complex state transitions, Services with multi-step pipelines, and Concerns with non-obvious mixin behavior.
+### 다이어그램
+플랜 자체는 모든 비사소한 데이터 흐름, 상태 머신, 처리 파이프라인에 ASCII 다이어그램을 사용해야 합니다. 또한 구현의 어떤 파일에 인라인 ASCII 다이어그램 주석이 들어가야 하는지 식별합니다 — 특히 복잡한 상태 전환이 있는 모델, 다단계 파이프라인이 있는 서비스, 자명하지 않은 mixin 동작이 있는 Concerns.
 
-### Failure modes
-For each new codepath identified in the test review diagram, list one realistic way it could fail in production (timeout, nil reference, race condition, stale data, etc.) and whether:
-1. A test covers that failure
-2. Error handling exists for it
-3. The user would see a clear error or a silent failure
+### 실패 모드
+테스트 리뷰 다이어그램에서 식별된 각 새로운 코드 경로에 대해, 프로덕션에서 실패할 수 있는 하나의 현실적인 방법(타임아웃, nil 참조, 레이스 컨디션, 오래된 데이터 등)을 나열하고 다음을 명시합니다:
+1. 해당 실패를 커버하는 테스트가 있는가
+2. 이를 위한 에러 처리가 있는가
+3. 사용자가 명확한 에러를 보게 되는가, 아니면 침묵하는 실패인가
 
-If any failure mode has no test AND no error handling AND would be silent, flag it as a **critical gap**.
+실패 모드에 테스트도 없고 에러 처리도 없으며 침묵하는 실패라면, **critical gap**으로 플래그합니다.
 
-### Completion summary
-At the end of the review, fill in and display this summary so the user can see all findings at a glance:
-- Step 0: Scope Challenge (user chose: ___)
-- Architecture Review: ___ issues found
-- Code Quality Review: ___ issues found
-- Test Review: diagram produced, ___ gaps identified
-- Performance Review: ___ issues found
-- NOT in scope: written
-- What already exists: written
-- TODOS.md updates: ___ items proposed to user
-- Failure modes: ___ critical gaps flagged
+### 완료 요약
+리뷰 끝에 사용자가 모든 결과를 한눈에 볼 수 있도록 이 요약을 채우고 표시합니다:
+- Step 0: 범위 도전 (사용자 선택: ___)
+- 아키텍처 리뷰: ___ 이슈 발견
+- 코드 품질 리뷰: ___ 이슈 발견
+- 테스트 리뷰: 다이어그램 생성됨, ___ 갭 식별됨
+- 성능 리뷰: ___ 이슈 발견
+- 범위에 없음: 작성됨
+- 이미 존재하는 것: 작성됨
+- TODOS.md 업데이트: ___ 항목 사용자에게 제안됨
+- 실패 모드: ___ critical gap 플래그됨
 
-## Retrospective learning
-Check the git log for this branch. If there are prior commits suggesting a previous review cycle (e.g., review-driven refactors, reverted changes), note what was changed and whether the current plan touches the same areas. Be more aggressive reviewing areas that were previously problematic.
+## 회고적 학습
+이 브랜치의 git log를 확인합니다. 이전 리뷰 사이클을 시사하는 이전 commit이 있다면 (예: 리뷰 주도 리팩터, 되돌린 변경사항), 무엇이 변경되었고 현재 플랜이 동일한 영역을 건드리는지 메모합니다. 이전에 문제가 있었던 영역을 더 적극적으로 검토합니다.
 
-## Formatting rules
-* NUMBER issues (1, 2, 3...) and LETTERS for options (A, B, C...).
-* Label with NUMBER + LETTER (e.g., "3A", "3B").
-* One sentence max per option. Pick in under 5 seconds.
-* After each review section, pause and ask for feedback before moving on.
+## 형식 규칙
+* 문제는 번호(1, 2, 3...)를, 옵션은 글자(A, B, C...)를 사용합니다.
+* 번호 + 글자로 레이블을 붙입니다 (예: "3A", "3B").
+* 옵션당 최대 한 문장. 5초 안에 선택할 수 있어야 합니다.
+* 각 리뷰 섹션 후에 멈추고 다음으로 넘어가기 전에 피드백을 구합니다.
 
-## Unresolved decisions
-If the user does not respond to an AskUserQuestion or interrupts to move on, note which decisions were left unresolved. At the end of the review, list these as "Unresolved decisions that may bite you later" — never silently default to an option.
+## 미해결 결정
+사용자가 AskUserQuestion에 응답하지 않거나 계속 진행하도록 끊으면, 어떤 결정이 미해결로 남았는지 메모합니다. 리뷰 끝에 이것들을 "나중에 문제가 될 수 있는 미해결 결정"으로 나열합니다 — 절대 조용히 옵션으로 기본값 처리하지 않습니다.
