@@ -86,6 +86,22 @@
 
 ---
 
+## Regression Tests
+
+| Issue | Test File | Status | Description |
+|-------|-----------|--------|-------------|
+| ISSUE-NNN | path/to/test | committed / deferred / skipped | description |
+
+### Deferred Tests
+
+#### ISSUE-NNN: {title}
+**Precondition:** {setup state that triggers the bug}
+**Action:** {what the user does}
+**Expected:** {correct behavior}
+**Why deferred:** {reason}
+
+---
+
 ## Ship Readiness
 
 | Metric | Value |
