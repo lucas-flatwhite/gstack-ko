@@ -6,6 +6,7 @@ description: |
   AI 생성 패턴, 느린 인터랙션을 발견한 후 수정합니다. 소스 코드에서 문제를
   반복적으로 수정하고 각 수정을 원자적으로 commit하며 전후 screenshot으로
   재검증합니다. 보고서 전용 모드는 /plan-design-review를 사용하세요.
+  "디자인 감사", "시각 QA", "디자인 괜찮은지 봐줘", "디자인 폴리싱" 요청 시 사용하세요.
 allowed-tools:
   - Bash
   - Read

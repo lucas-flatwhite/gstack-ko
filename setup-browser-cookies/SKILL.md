@@ -5,6 +5,7 @@ description: |
   실제 브라우저 (Comet, Chrome, Arc, Brave, Edge)의 cookie를 headless browse 세션으로
   가져옵니다. 가져올 cookie 도메인을 선택할 수 있는 인터랙티브 picker UI를 엽니다.
   인증이 필요한 페이지를 QA 테스트하기 전에 사용하세요.
+  "쿠키 가져와", "사이트 로그인 상태로 테스트", "브라우저 인증 연결" 요청 시 사용하세요.
 allowed-tools:
   - Bash
   - Read

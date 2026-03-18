@@ -84,6 +84,12 @@ To do this: use Grep to find all references to the sibling values (e.g., grep fo
 - `.expects(:something).never` missing when a code path should explicitly NOT call an external service
 - Security enforcement features (blocking, rate limiting, auth) without integration tests verifying the enforcement path works end-to-end
 
+#### Completeness Gaps
+- Shortcut implementations where the complete version would cost <30 minutes CC time (e.g., partial enum handling, incomplete error paths, missing edge cases that are straightforward to add)
+- Options presented with only human-team effort estimates — should show both human and CC+gstack time
+- Test coverage gaps where adding the missing tests is a "lake" not an "ocean" (e.g., missing negative-path tests, missing edge case tests that mirror happy-path structure)
+- Features implemented at 80-90% when 100% is achievable with modest additional code
+
 #### Crypto & Entropy
 - Truncation of data instead of hashing (last N chars instead of SHA-256) — less entropy, easier collisions
 - `rand()` / `Random.rand` for security-sensitive values — use `SecureRandom` instead
@@ -113,6 +119,7 @@ CRITICAL (highest severity):      INFORMATIONAL (lower severity):
 ├─ LLM Output Trust Boundary      ├─ Dead Code & Consistency
 └─ Enum & Value Completeness      ├─ LLM Prompt Issues
                                    ├─ Test Gaps
+                                   ├─ Completeness Gaps
                                    ├─ Crypto & Entropy
                                    ├─ Time Window Safety
                                    ├─ Type Coercion at Boundaries

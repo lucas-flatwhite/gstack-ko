@@ -1,17 +1,19 @@
 ---
 name: plan-design-review
-version: 1.0.0
+version: 2.0.0
 description: |
-  디자이너의 시각으로 라이브 사이트를 검토합니다. 시각적 일관성 부재, 간격 문제,
-  위계 오류, 인터랙션 감각, AI 생성 패턴, 타이포그래피 문제, 누락된 상태,
-  느린 인터랙션을 발견합니다. 주석이 달린 screenshot과 letter 등급이 포함된
-  우선순위 디자인 감사 보고서를 작성합니다. 디자인 시스템을 추론하고 DESIGN.md로
-  내보내기를 제안합니다. 보고서 작성 전용 — 코드를 수정하지 않습니다. 수정 루프가
-  필요하면 /design-review를 사용하세요.
+  디자이너 시각의 플랜 리뷰를 CEO/Eng 리뷰처럼 대화형으로 수행합니다.
+  각 디자인 차원을 0-10으로 평가하고, 10점 기준을 설명한 뒤,
+  실제 계획을 10점에 가깝게 수정합니다. 계획 모드에서 사용하세요.
+  라이브 사이트 시각 감사는 /design-review를 사용하세요.
+  "디자인 플랜 리뷰", "디자인 비평" 요청 시 사용하세요.
 allowed-tools:
-  - Bash
   - Read
   - Write
+  - Edit
+  - Grep
+  - Glob
+  - Bash
   - AskUserQuestion
 ---
 <!-- AUTO-GENERATED from SKILL.md.tmpl — do not edit directly -->
