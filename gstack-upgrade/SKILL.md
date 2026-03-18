@@ -4,6 +4,7 @@ version: 1.1.0
 description: |
   gstack를 최신 버전으로 업그레이드합니다. 전역 설치 및 벤더링된 설치를 감지하고
   업그레이드를 실행한 후 새로운 기능을 표시합니다.
+  "gstack 업그레이드", "gstack 업데이트", "최신 버전으로 올려줘" 요청 시 사용하세요.
 allowed-tools:
   - Bash
   - Read

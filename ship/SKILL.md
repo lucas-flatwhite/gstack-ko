@@ -3,6 +3,7 @@ name: ship
 version: 1.0.0
 description: |
   Ship 워크플로: base 브랜치 감지 및 merge, 테스트 실행, diff 리뷰, VERSION 업데이트, CHANGELOG 작성, commit, push, PR 생성.
+  "ship 해줘", "배포해줘", "main으로 푸시", "PR 만들어줘", "머지하고 푸시" 요청 시 사용하세요.
 allowed-tools:
   - Bash
   - Read
@@ -11,6 +12,7 @@ allowed-tools:
   - Grep
   - Glob
   - AskUserQuestion
+  - WebSearch
 ---
 <!-- AUTO-GENERATED from SKILL.md.tmpl — do not edit directly -->
 <!-- Regenerate: bun run gen:skill-docs -->

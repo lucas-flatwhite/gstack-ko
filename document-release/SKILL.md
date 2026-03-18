@@ -5,6 +5,7 @@ description: |
   배포 후 문서 업데이트. 모든 프로젝트 문서를 읽고, diff와 교차 대조하여,
   README/ARCHITECTURE/CONTRIBUTING/CLAUDE.md를 배포된 내용에 맞게 업데이트하고,
   CHANGELOG 문체를 다듬으며, TODOS를 정리하고, 선택적으로 VERSION을 올립니다.
+  "문서 업데이트", "문서 동기화", "배포 후 문서 정리" 요청 시 사용하세요.
 allowed-tools:
   - Bash
   - Read

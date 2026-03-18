@@ -3,9 +3,10 @@ name: plan-ceo-review
 version: 1.0.0
 description: |
   CEO/창업자 모드 플랜 리뷰. 문제를 재정의하고, 10성급 제품을 찾고,
-  전제에 도전하며, 더 나은 제품을 만들 때는 범위를 확장합니다. 세 가지 모드:
-  SCOPE EXPANSION (크게 꿈꾸기), HOLD SCOPE (최대 엄격성), SCOPE REDUCTION
-  (핵심만 남기기).
+  전제에 도전하며, 더 나은 제품을 만들 때는 범위를 확장합니다. 네 가지 모드:
+  SCOPE EXPANSION (크게 꿈꾸기), SELECTIVE EXPANSION (범위 유지 + 선택 확장),
+  HOLD SCOPE (최대 엄격성), SCOPE REDUCTION (핵심만 남기기).
+  "더 크게 생각해줘", "범위 확장", "전략 리뷰", "이 방향 재고", "야망이 충분한지 점검" 요청 시 사용하세요.
 allowed-tools:
   - Read
   - Grep

@@ -10,7 +10,11 @@
 
 **gstack은 Claude Code를 하나의 범용 어시스턴트에서 필요할 때 즉시 소환할 수 있는 전문가 팀으로 바꿔줍니다.**
 
-[Claude Code](https://docs.anthropic.com/en/docs/claude-code)를 위한 9개의 의견이 담긴 워크플로우 스킬. 계획 검토, 코드 리뷰, 원-커맨드 배포, 브라우저 자동화, QA 테스트, 엔지니어링 회고 — 모두 슬래시 커맨드로.
+[Claude Code](https://docs.anthropic.com/en/docs/claude-code)를 위한 13개의 의견이 담긴 워크플로우 스킬. 계획 검토, 코드 리뷰, 원-커맨드 배포, 브라우저 자동화, QA 테스트, 엔지니어링 회고 — 모두 슬래시 커맨드로.
+
+![GitHub 기여 그래프 2026 - 1,237회 기여, 1~3월 급가속](docs/images/github-2026.png)
+
+![GitHub 기여 그래프 2013 - YC Bookface 개발 시기 772회 기여](docs/images/github-2013.png)
 
 ### gstack 없이
 
@@ -35,8 +39,8 @@
 | `/setup-browser-cookies` | 세션 매니저 | 실제 브라우저(Comet, Chrome, Arc, Brave, Edge)의 쿠키를 헤드리스 세션으로 가져옵니다. 수동 로그인 없이 인증된 페이지를 테스트합니다. |
 | `/retro` | 엔지니어링 매니저 | 팀 인식형 회고: 당신의 심층 분석 + 모든 기여자의 개인별 칭찬과 성장 기회. |
 | `/design-consultation` | 디자인 컨설턴트 | 디자인 시스템을 함께 구축합니다. 제품을 이해하고, 경쟁사를 조사하고, 완전한 디자인 시스템(미학, 타이포그래피, 색상, 레이아웃, 모션)을 제안하고, 폰트+색상 미리보기 페이지를 생성합니다. |
-| `/plan-design-review` | 디자인 감사관 | 라이브 사이트의 디자인 감사. 시각적 불일치, 간격 문제, 계층 구조 문제를 찾아내고 우선순위가 지정된 감사 보고서를 제공합니다. 코드 수정 없이 리포트만 제공합니다. |
-| `/qa-design-review` | 디자인 QA 엔지니어 | `/plan-design-review`와 같은 방법론으로 검사하되 발견된 디자인 이슈를 직접 수정합니다. |
+| `/plan-design-review` | 디자인 플랜 리뷰어 | 계획 모드에서 디자인 계획을 대화형으로 0-10 평가하고, 10점 기준을 설명한 뒤 계획 자체를 개선합니다. |
+| `/design-review` | 디자이너 겸 프론트엔드 엔지니어 | 라이브 사이트를 시각 감사하고, 발견한 디자인 이슈를 코드로 직접 수정·검증합니다. |
 | `/document-release` | 문서 관리자 | 배포 후 문서 업데이트. `/ship` 실행 후 README, ARCHITECTURE, CONTRIBUTING, CLAUDE.md를 diff와 교차 참조하여 업데이트합니다. |
 
 ## 데모: 하나의 기능, 다섯 가지 모드
@@ -117,7 +121,7 @@ gstack은 하나의 Claude Code 세션으로도 강력합니다. 10개면 판도
 | `/plan-ceo-review`, `/plan-eng-review` | ✅ | ✅ |
 | `/review`, `/ship`, `/retro`, `/qa-only` | ✅ | ✅ |
 | `/design-consultation`, `/plan-design-review` | ✅ | ✅ |
-| `/qa-design-review`, `/document-release` | ✅ | ✅ |
+| `/design-review`, `/document-release` | ✅ | ✅ |
 | `/browse`, `/qa`, `/setup-browser-cookies` | 설명만 제공 | ✅ (바이너리 포함) |
 | 브라우저 바이너리 (Playwright) | ❌ | ✅ |
 

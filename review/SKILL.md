@@ -4,6 +4,7 @@ version: 1.0.0
 description: |
   PR 랜딩 전 코드 리뷰. base 브랜치 대비 diff를 분석하여 SQL 안전성, LLM 신뢰 경계 위반,
   조건부 사이드 이펙트 및 기타 구조적 문제를 검출합니다.
+  "이 PR 리뷰해줘", "코드 리뷰", "랜딩 전 점검", "내 diff 점검" 요청 시 사용하세요.
 allowed-tools:
   - Bash
   - Read
