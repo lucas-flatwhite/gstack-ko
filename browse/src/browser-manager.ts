@@ -15,7 +15,7 @@
  *   restores state. Falls back to clean slate on any failure.
  */
 
-import { chromium, type Browser, type BrowserContext, type Page, type Locator } from 'playwright';
+import { chromium, type Browser, type BrowserContext, type BrowserContextOptions, type Page, type Locator } from 'playwright';
 import { addConsoleEntry, addNetworkEntry, addDialogEntry, networkBuffer, type DialogEntry } from './buffers';
 
 export interface RefEntry {
@@ -57,7 +57,7 @@ export class BrowserManager {
       process.exit(1);
     });
 
-    const contextOptions: any = {
+    const contextOptions: BrowserContextOptions = {
       viewport: { width: 1280, height: 720 },
     };
     if (this.customUserAgent) {
@@ -208,6 +208,15 @@ export class BrowserManager {
     return { selector };
   }
 
+  /** Get the ARIA role for a ref selector, or null for CSS selectors / unknown refs. */
+  getRefRole(selector: string): string | null {
+    if (selector.startsWith('@e') || selector.startsWith('@c')) {
+      const entry = this.refMap.get(selector.slice(1));
+      return entry?.role ?? null;
+    }
+    return null;
+  }
+
   getRefCount(): number {
     return this.refMap.size;
   }
@@ -273,7 +282,7 @@ export class BrowserManager {
     try {
       // 1. Save state from current context
       const savedCookies = await this.context.cookies();
-      const savedPages: Array<{ url: string; isActive: boolean; storage: any }> = [];
+      const savedPages: Array<{ url: string; isActive: boolean; storage: { localStorage: Record<string, string>; sessionStorage: Record<string, string> } | null }> = [];
 
       for (const [id, page] of this.pages) {
         const url = page.url();
@@ -299,7 +308,7 @@ export class BrowserManager {
       await this.context.close().catch(() => {});
 
       // 3. Create new context with updated settings
-      const contextOptions: any = {
+      const contextOptions: BrowserContextOptions = {
         viewport: { width: 1280, height: 720 },
       };
       if (this.customUserAgent) {
@@ -331,15 +340,15 @@ export class BrowserManager {
         // 6. Restore storage
         if (saved.storage) {
           try {
-            await page.evaluate((s: any) => {
+            await page.evaluate((s: { localStorage: Record<string, string>; sessionStorage: Record<string, string> }) => {
               if (s.localStorage) {
                 for (const [k, v] of Object.entries(s.localStorage)) {
-                  localStorage.setItem(k, v as string);
+                  localStorage.setItem(k, v);
                 }
               }
               if (s.sessionStorage) {
                 for (const [k, v] of Object.entries(s.sessionStorage)) {
-                  sessionStorage.setItem(k, v as string);
+                  sessionStorage.setItem(k, v);
                 }
               }
             }, saved.storage);
@@ -360,13 +369,13 @@ export class BrowserManager {
       this.clearRefs();
 
       return null; // success
-    } catch (err: any) {
+    } catch (err: unknown) {
       // Fallback: create a clean context + blank tab
       try {
         this.pages.clear();
         if (this.context) await this.context.close().catch(() => {});
 
-        const contextOptions: any = {
+        const contextOptions: BrowserContextOptions = {
           viewport: { width: 1280, height: 720 },
         };
         if (this.customUserAgent) {
@@ -378,7 +387,7 @@ export class BrowserManager {
       } catch {
         // If even the fallback fails, we're in trouble — but browser is still alive
       }
-      return `Context recreation failed: ${err.message}. Browser reset to blank tab.`;
+      return `Context recreation failed: ${err instanceof Error ? err.message : String(err)}. Browser reset to blank tab.`;
     }
   }
 

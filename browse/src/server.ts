@@ -104,7 +104,7 @@ async function flushBuffers() {
       const lines = entries.map(e =>
         `[${new Date(e.timestamp).toISOString()}] [${e.level}] ${e.text}`
       ).join('\n') + '\n';
-      await Bun.write(CONSOLE_LOG_PATH, (await Bun.file(CONSOLE_LOG_PATH).text().catch(() => '')) + lines);
+      fs.appendFileSync(CONSOLE_LOG_PATH, lines);
       lastConsoleFlushed = consoleBuffer.totalAdded;
     }
 
@@ -115,7 +115,7 @@ async function flushBuffers() {
       const lines = entries.map(e =>
         `[${new Date(e.timestamp).toISOString()}] ${e.method} ${e.url} → ${e.status || 'pending'} (${e.duration || '?'}ms, ${e.size || '?'}B)`
       ).join('\n') + '\n';
-      await Bun.write(NETWORK_LOG_PATH, (await Bun.file(NETWORK_LOG_PATH).text().catch(() => '')) + lines);
+      fs.appendFileSync(NETWORK_LOG_PATH, lines);
       lastNetworkFlushed = networkBuffer.totalAdded;
     }
 
@@ -126,7 +126,7 @@ async function flushBuffers() {
       const lines = entries.map(e =>
         `[${new Date(e.timestamp).toISOString()}] [${e.type}] "${e.message}" → ${e.action}${e.response ? ` "${e.response}"` : ''}`
       ).join('\n') + '\n';
-      await Bun.write(DIALOG_LOG_PATH, (await Bun.file(DIALOG_LOG_PATH).text().catch(() => '')) + lines);
+      fs.appendFileSync(DIALOG_LOG_PATH, lines);
       lastDialogFlushed = dialogBuffer.totalAdded;
     }
   } catch {

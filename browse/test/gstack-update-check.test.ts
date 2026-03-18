@@ -7,7 +7,7 @@
  */
 
 import { describe, test, expect, beforeEach, afterEach } from 'bun:test';
-import { mkdtempSync, writeFileSync, rmSync, existsSync, readFileSync, mkdirSync, symlinkSync } from 'fs';
+import { mkdtempSync, writeFileSync, rmSync, existsSync, readFileSync, mkdirSync, symlinkSync, utimesSync } from 'fs';
 import { join } from 'path';
 import { tmpdir } from 'os';
 
@@ -16,8 +16,8 @@ const SCRIPT = join(import.meta.dir, '..', '..', 'bin', 'gstack-update-check');
 let gstackDir: string;
 let stateDir: string;
 
-function run(extraEnv: Record<string, string> = {}) {
-  const result = Bun.spawnSync(['bash', SCRIPT], {
+function run(extraEnv: Record<string, string> = {}, args: string[] = []) {
+  const result = Bun.spawnSync(['bash', SCRIPT, ...args], {
     env: {
       ...process.env,
       GSTACK_DIR: gstackDir,
@@ -408,6 +408,58 @@ describe('gstack-update-check', () => {
     writeFileSync(join(gstackDir, 'REMOTE_VERSION'), '0.4.0\n');
     // No config file — should behave normally
 
+    const { exitCode, stdout } = run();
+    expect(exitCode).toBe(0);
+    expect(stdout).toBe('UPGRADE_AVAILABLE 0.3.3 0.4.0');
+  });
+
+  // ─── --force flag tests ──────────────────────────────────────
+
+  test('--force busts fresh UP_TO_DATE cache', () => {
+    writeFileSync(join(gstackDir, 'VERSION'), '0.3.3\n');
+    writeFileSync(join(gstackDir, 'REMOTE_VERSION'), '0.4.0\n');
+    writeFileSync(join(stateDir, 'last-update-check'), 'UP_TO_DATE 0.3.3');
+
+    // Without --force: cache hit, silent
+    const cached = run();
+    expect(cached.stdout).toBe('');
+
+    // With --force: cache busted, re-fetches, finds upgrade
+    const forced = run({}, ['--force']);
+    expect(forced.exitCode).toBe(0);
+    expect(forced.stdout).toBe('UPGRADE_AVAILABLE 0.3.3 0.4.0');
+  });
+
+  test('--force busts fresh UPGRADE_AVAILABLE cache', () => {
+    writeFileSync(join(gstackDir, 'VERSION'), '0.3.3\n');
+    writeFileSync(join(gstackDir, 'REMOTE_VERSION'), '0.3.3\n');
+    writeFileSync(join(stateDir, 'last-update-check'), 'UPGRADE_AVAILABLE 0.3.3 0.4.0');
+
+    // Without --force: cache hit, outputs stale upgrade
+    const cached = run();
+    expect(cached.stdout).toBe('UPGRADE_AVAILABLE 0.3.3 0.4.0');
+
+    // With --force: cache busted, re-fetches, now up to date
+    const forced = run({}, ['--force']);
+    expect(forced.exitCode).toBe(0);
+    expect(forced.stdout).toBe('');
+    const cache = readFileSync(join(stateDir, 'last-update-check'), 'utf-8');
+    expect(cache).toContain('UP_TO_DATE');
+  });
+
+  // ─── Split TTL tests ─────────────────────────────────────────
+
+  test('UP_TO_DATE cache expires after 60 min (not 720)', () => {
+    writeFileSync(join(gstackDir, 'VERSION'), '0.3.3\n');
+    writeFileSync(join(gstackDir, 'REMOTE_VERSION'), '0.4.0\n');
+    writeFileSync(join(stateDir, 'last-update-check'), 'UP_TO_DATE 0.3.3');
+
+    // Set cache mtime to 90 minutes ago (past 60-min TTL)
+    const ninetyMinAgo = new Date(Date.now() - 90 * 60 * 1000);
+    const cachePath = join(stateDir, 'last-update-check');
+    utimesSync(cachePath, ninetyMinAgo, ninetyMinAgo);
+
+    // Cache should be stale at 60-min TTL, re-fetches and finds upgrade
     const { exitCode, stdout } = run();
     expect(exitCode).toBe(0);
     expect(stdout).toBe('UPGRADE_AVAILABLE 0.3.3 0.4.0');

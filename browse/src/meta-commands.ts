@@ -5,6 +5,7 @@
 import type { BrowserManager } from './browser-manager';
 import { handleSnapshot } from './snapshot';
 import { getCleanText } from './read-commands';
+import { READ_COMMANDS, WRITE_COMMANDS, META_COMMANDS } from './commands';
 import * as Diff from 'diff';
 import * as fs from 'fs';
 import * as path from 'path';
@@ -19,28 +20,6 @@ function validateOutputPath(filePath: string): void {
     throw new Error(`Path must be within: ${SAFE_DIRECTORIES.join(', ')}`);
   }
 }
-
-// Command sets for chain routing (mirrors server.ts — kept local to avoid circular import)
-const CHAIN_READ = new Set([
-  'text', 'html', 'links', 'forms', 'accessibility',
-  'js', 'eval', 'css', 'attrs',
-  'console', 'network', 'cookies', 'storage', 'perf',
-  'dialog', 'is',
-]);
-const CHAIN_WRITE = new Set([
-  'goto', 'back', 'forward', 'reload',
-  'click', 'fill', 'select', 'hover', 'type', 'press', 'scroll', 'wait',
-  'viewport', 'cookie', 'cookie-import', 'header', 'useragent',
-  'upload', 'dialog-accept', 'dialog-dismiss',
-  'cookie-import-browser',
-]);
-const CHAIN_META = new Set([
-  'tabs', 'tab', 'newtab', 'closetab',
-  'status', 'stop', 'restart',
-  'screenshot', 'pdf', 'responsive',
-  'chain', 'diff',
-  'url', 'snapshot',
-]);
 
 export async function handleMetaCommand(
   command: string,
@@ -223,9 +202,9 @@ export async function handleMetaCommand(
         const [name, ...cmdArgs] = cmd;
         try {
           let result: string;
-          if (CHAIN_WRITE.has(name))      result = await handleWriteCommand(name, cmdArgs, bm);
-          else if (CHAIN_READ.has(name))  result = await handleReadCommand(name, cmdArgs, bm);
-          else if (CHAIN_META.has(name))  result = await handleMetaCommand(name, cmdArgs, bm, shutdown);
+          if (WRITE_COMMANDS.has(name))    result = await handleWriteCommand(name, cmdArgs, bm);
+          else if (READ_COMMANDS.has(name))  result = await handleReadCommand(name, cmdArgs, bm);
+          else if (META_COMMANDS.has(name))  result = await handleMetaCommand(name, cmdArgs, bm, shutdown);
           else throw new Error(`Unknown command: ${name}`);
           results.push(`[${name}] ${result}`);
         } catch (err: any) {

@@ -1,6 +1,6 @@
 ---
-name: qa-design-review
-version: 1.0.0
+name: design-review
+version: 2.0.0
 description: |
   디자이너의 시각으로 QA를 수행합니다: 시각적 일관성 부재, 간격 문제, 위계 오류,
   AI 생성 패턴, 느린 인터랙션을 발견한 후 수정합니다. 소스 코드에서 문제를
@@ -14,6 +14,7 @@ allowed-tools:
   - Glob
   - Grep
   - AskUserQuestion
+  - WebSearch
 ---
 <!-- AUTO-GENERATED from SKILL.md.tmpl — do not edit directly -->
 <!-- Regenerate: bun run gen:skill-docs -->
@@ -83,7 +84,7 @@ Hey gstack team — ran into this while using /{skill-name}:
 
 Slug: 소문자, 하이픈, 최대 60자 (예: `browse-js-no-await`). 파일이 이미 존재하면 건너뜁니다. 세션당 최대 3개의 보고서. 인라인으로 제출하고 계속 진행하세요 — 워크플로우를 중단하지 마세요. 사용자에게 알립니다: "Filed gstack field report: {title}"
 
-# /qa-design-review: 디자인 감사 → 수정 → 검증
+# /design-review: 디자인 감사 → 수정 → 검증
 
 당신은 시니어 프로덕트 디자이너이자 프론트엔드 엔지니어입니다. 엄격한 시각적 기준으로 라이브 사이트를 검토한 다음 — 발견한 것을 수정합니다. 타이포그래피, 간격, 시각적 위계에 대한 강한 의견을 갖고 있으며, 일반적이거나 AI가 생성한 것 같은 인터페이스에 대한 용납이 없습니다.
 
@@ -110,7 +111,7 @@ Slug: 소문자, 하이픈, 최대 60자 (예: `browse-js-no-await`). 파일이 
 
 ```bash
 if [ -n "$(git status --porcelain)" ]; then
-  echo "ERROR: Working tree is dirty. Commit or stash changes before running /qa-design-review."
+  echo "ERROR: Working tree is dirty. Commit or stash changes before running /design-review."
   exit 1
 fi
 ```
@@ -630,11 +631,11 @@ mkdir -p ~/.gstack/projects/$SLUG
 저장소에 `TODOS.md`가 있는 경우:
 
 1. **새로운 지연된 디자인 발견 사항** → 영향 수준, 카테고리, 설명과 함께 TODO로 추가
-2. **TODOS.md에 있던 수정된 발견 사항** → "/qa-design-review로 {branch}, {date}에 수정됨"으로 주석 추가
+2. **TODOS.md에 있던 수정된 발견 사항** → "/design-review로 {branch}, {date}에 수정됨"으로 주석 추가
 
 ---
 
-## 추가 규칙 (qa-design-review 전용)
+## 추가 규칙 (design-review 전용)
 
 11. **깨끗한 working tree 필요.** `git status --porcelain`이 비어있지 않으면 시작을 거부합니다.
 12. **수정당 하나의 commit.** 여러 디자인 수정을 하나의 commit으로 묶지 마세요.
