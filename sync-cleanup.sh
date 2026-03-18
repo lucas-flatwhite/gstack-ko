@@ -15,6 +15,8 @@ REMOVE=(
   bin/
   scripts/
   test/
+  browse/src/
+  browse/test/
   package.json
   conductor.json
   VERSION
