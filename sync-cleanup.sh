@@ -27,9 +27,12 @@ REMOVE=(
   # 테스트
   test/
 
-  # 브라우저 소스/테스트
+  # 브라우저 소스/테스트/바이너리/스크립트
   browse/src/
   browse/test/
+  browse/bin/
+  browse/dist/
+  browse/scripts/
 
   # 에이전트 설정 (Codex/Gemini)
   .agents/
@@ -46,6 +49,9 @@ REMOVE=(
 
   # 생성된 스킬 목록 (빌드 산출물)
   docs/skills.md
+
+  # 환경 설정 예제
+  .env.example
 )
 
 echo "▶ 번역 불필요 파일 제거 중..."
@@ -63,6 +69,13 @@ done
 for tmpl in $(git ls-files '*/SKILL.md.tmpl' 2>/dev/null); do
   git rm --quiet "$tmpl"
   echo "  삭제: $tmpl"
+  changed=1
+done
+
+# 스킬별 bin/ 디렉토리 제거 (프로그램 스크립트)
+for bindir in $(git ls-files '*/bin/*' 2>/dev/null | sed 's|/[^/]*$||' | sort -u); do
+  git rm -r --quiet "$bindir"
+  echo "  삭제: $bindir/"
   changed=1
 done
 

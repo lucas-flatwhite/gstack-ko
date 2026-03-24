@@ -1,7 +1,13 @@
 .env
+.env.local
+.env.*
 node_modules/
 browse/dist/
-bin/gstack-global-discover
+browse/bin/
+browse/src/
+browse/test/
+browse/scripts/
+bin/
 .gstack/
 .claude/skills/
 .agents/
@@ -11,7 +17,3 @@ bin/gstack-global-discover
 *.log
 bun.lock
 *.bun-build
-.env
-.env.local
-.env.*
-!.env.example
