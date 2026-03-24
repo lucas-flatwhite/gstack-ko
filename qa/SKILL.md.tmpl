@@ -1,11 +1,14 @@
 ---
 name: qa
+preamble-tier: 4
 version: 2.0.0
 description: |
   Systematically QA test a web application and fix bugs found. Runs QA testing,
   then iteratively fixes bugs in source code, committing each fix atomically and
   re-verifying. Use when asked to "qa", "QA", "test this site", "find bugs",
-  "test and fix", or "fix what's broken". Three tiers: Quick (critical/high only),
+  "test and fix", or "fix what's broken".
+  Proactively suggest when the user says a feature is ready for testing
+  or asks "does this work?". Three tiers: Quick (critical/high only),
   Standard (+ medium), Exhaustive (+ cosmetic). Produces before/after health scores,
   fix evidence, and a ship-readiness summary. For report-only mode, use /qa-only.
 allowed-tools:
@@ -16,6 +19,7 @@ allowed-tools:
   - Glob
   - Grep
   - AskUserQuestion
+  - WebSearch
 ---
 
 {{PREAMBLE}}
@@ -46,17 +50,31 @@ You are a QA engineer AND a bug-fix engineer. Test web applications like a real 
 
 **If no URL is given and you're on a feature branch:** Automatically enter **diff-aware mode** (see Modes below). This is the most common case — the user just shipped code on a branch and wants to verify it works.
 
-**Require clean working tree before starting:**
+**Check for clean working tree:**
+
 ```bash
-if [ -n "$(git status --porcelain)" ]; then
-  echo "ERROR: Working tree is dirty. Commit or stash changes before running /qa."
-  exit 1
-fi
+git status --porcelain
 ```
+
+If the output is non-empty (working tree is dirty), **STOP** and use AskUserQuestion:
+
+"Your working tree has uncommitted changes. /qa needs a clean tree so each bug fix gets its own atomic commit."
+
+- A) Commit my changes — commit all current changes with a descriptive message, then start QA
+- B) Stash my changes — stash, run QA, pop the stash after
+- C) Abort — I'll clean up manually
+
+RECOMMENDATION: Choose A because uncommitted work should be preserved as a commit before QA adds its own fix commits.
+
+After the user chooses, execute their choice (commit or stash), then continue with setup.
 
 **Find the browse binary:**
 
 {{BROWSE_SETUP}}
+
+**Check test framework (bootstrap if needed):**
+
+{{TEST_BOOTSTRAP}}
 
 **Create output directories:**
 
@@ -72,7 +90,7 @@ Before falling back to git diff heuristics, check for richer test plan sources:
 
 1. **Project-scoped test plans:** Check `~/.gstack/projects/` for recent `*-test-plan-*.md` files for this repo
    ```bash
-   SLUG=$(git remote get-url origin 2>/dev/null | sed 's|.*[:/]\([^/]*/[^/]*\)\.git$|\1|;s|.*[:/]\([^/]*/[^/]*\)$|\1|' | tr '/' '-')
+   {{SLUG_EVAL}}
    ls -t ~/.gstack/projects/$SLUG/*-test-plan-*.md 2>/dev/null | head -1
    ```
 2. **Conversation context:** Check if a prior `/plan-eng-review` or `/plan-ceo-review` produced test plan output in this conversation
@@ -169,6 +187,59 @@ $B snapshot -D
 - **best-effort**: fix applied but couldn't fully verify (e.g., needs auth state, external service)
 - **reverted**: regression detected → `git revert HEAD` → mark issue as "deferred"
 
+### 8e.5. Regression Test
+
+Skip if: classification is not "verified", OR the fix is purely visual/CSS with no JS behavior, OR no test framework was detected AND user declined bootstrap.
+
+**1. Study the project's existing test patterns:**
+
+Read 2-3 test files closest to the fix (same directory, same code type). Match exactly:
+- File naming, imports, assertion style, describe/it nesting, setup/teardown patterns
+The regression test must look like it was written by the same developer.
+
+**2. Trace the bug's codepath, then write a regression test:**
+
+Before writing the test, trace the data flow through the code you just fixed:
+- What input/state triggered the bug? (the exact precondition)
+- What codepath did it follow? (which branches, which function calls)
+- Where did it break? (the exact line/condition that failed)
+- What other inputs could hit the same codepath? (edge cases around the fix)
+
+The test MUST:
+- Set up the precondition that triggered the bug (the exact state that made it break)
+- Perform the action that exposed the bug
+- Assert the correct behavior (NOT "it renders" or "it doesn't throw")
+- If you found adjacent edge cases while tracing, test those too (e.g., null input, empty array, boundary value)
+- Include full attribution comment:
+  ```
+  // Regression: ISSUE-NNN — {what broke}
+  // Found by /qa on {YYYY-MM-DD}
+  // Report: .gstack/qa-reports/qa-report-{domain}-{date}.md
+  ```
+
+Test type decision:
+- Console error / JS exception / logic bug → unit or integration test
+- Broken form / API failure / data flow bug → integration test with request/response
+- Visual bug with JS behavior (broken dropdown, animation) → component test
+- Pure CSS → skip (caught by QA reruns)
+
+Generate unit tests. Mock all external dependencies (DB, API, Redis, file system).
+
+Use auto-incrementing names to avoid collisions: check existing `{name}.regression-*.test.{ext}` files, take max number + 1.
+
+**3. Run only the new test file:**
+
+```bash
+{detected test command} {new-test-file}
+```
+
+**4. Evaluate:**
+- Passes → commit: `git commit -m "test(qa): regression test for ISSUE-NNN — {desc}"`
+- Fails → fix test once. Still failing → delete test, defer.
+- Taking >2 min exploration → skip and defer.
+
+**5. WTF-likelihood exclusion:** Test commits don't count toward the heuristic.
+
 ### 8f. Self-Regulation (STOP AND EVALUATE)
 
 Every 5 fixes (or after any revert), compute the WTF-likelihood:
@@ -207,8 +278,7 @@ Write the report to both local and project-scoped locations:
 
 **Project-scoped:** Write test outcome artifact for cross-session context:
 ```bash
-SLUG=$(git remote get-url origin 2>/dev/null | sed 's|.*[:/]\([^/]*/[^/]*\)\.git$|\1|;s|.*[:/]\([^/]*/[^/]*\)$|\1|' | tr '/' '-')
-mkdir -p ~/.gstack/projects/$SLUG
+{{SLUG_SETUP}}
 ```
 Write to `~/.gstack/projects/{slug}/{user}-{branch}-test-outcome-{datetime}.md`
 
@@ -240,8 +310,8 @@ If the repo has a `TODOS.md`:
 
 ## Additional Rules (qa-specific)
 
-11. **Clean working tree required.** Refuse to start if `git status --porcelain` is non-empty.
+11. **Clean working tree required.** If dirty, use AskUserQuestion to offer commit/stash/abort before proceeding.
 12. **One commit per fix.** Never bundle multiple fixes into one commit.
-13. **Never modify tests or CI configuration.** Only fix application source code.
+13. **Only modify tests when generating regression tests in Phase 8e.5.** Never modify CI configuration. Never modify existing tests — only create new test files.
 14. **Revert on regression.** If a fix makes things worse, `git revert HEAD` immediately.
 15. **Self-regulate.** Follow the WTF-likelihood heuristic. When in doubt, stop and ask.

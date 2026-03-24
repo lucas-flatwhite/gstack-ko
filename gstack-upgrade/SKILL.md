@@ -2,9 +2,10 @@
 name: gstack-upgrade
 version: 1.1.0
 description: |
-  gstack를 최신 버전으로 업그레이드합니다. 전역 설치 및 벤더링된 설치를 감지하고
-  업그레이드를 실행한 후 새로운 기능을 표시합니다.
-  "gstack 업그레이드", "gstack 업데이트", "최신 버전으로 올려줘" 요청 시 사용하세요.
+  MANUAL TRIGGER ONLY: invoke only when user types /gstack-upgrade.
+  Upgrade gstack to the latest version. Detects global vs vendored install,
+  runs the upgrade, and shows what's new. Use when asked to "upgrade gstack",
+  "update gstack", or "get latest version".
 allowed-tools:
   - Bash
   - Read
@@ -16,15 +17,15 @@ allowed-tools:
 
 # /gstack-upgrade
 
-gstack을 최신 버전으로 업그레이드하고 새로운 기능을 표시합니다.
+Upgrade gstack to the latest version and show what's new.
 
 ## Inline upgrade flow
 
-이 섹션은 `UPGRADE_AVAILABLE`을 감지했을 때 모든 스킬 preamble에서 참조됩니다.
+This section is referenced by all skill preambles when they detect `UPGRADE_AVAILABLE`.
 
-### Step 1: 사용자에게 묻기 (또는 자동 업그레이드)
+### Step 1: Ask the user (or auto-upgrade)
 
-먼저 자동 업그레이드가 활성화되어 있는지 확인합니다:
+First, check if auto-upgrade is enabled:
 ```bash
 _AUTO=""
 [ "${GSTACK_AUTO_UPGRADE:-}" = "1" ] && _AUTO="true"
@@ -32,21 +33,21 @@ _AUTO=""
 echo "AUTO_UPGRADE=$_AUTO"
 ```
 
-**`AUTO_UPGRADE=true` 또는 `AUTO_UPGRADE=1`인 경우:** AskUserQuestion을 건너뜁니다. "Auto-upgrading gstack v{old} → v{new}..."를 로그에 기록하고 바로 Step 2로 진행합니다. 자동 업그레이드 중 `./setup`이 실패하면 백업(`.bak` 디렉토리)에서 복원하고 사용자에게 경고합니다: "Auto-upgrade failed — restored previous version. Run `/gstack-upgrade` manually to retry."
+**If `AUTO_UPGRADE=true` or `AUTO_UPGRADE=1`:** Skip AskUserQuestion. Log "Auto-upgrading gstack v{old} → v{new}..." and proceed directly to Step 2. If `./setup` fails during auto-upgrade, restore from backup (`.bak` directory) and warn the user: "Auto-upgrade failed — restored previous version. Run `/gstack-upgrade` manually to retry."
 
-**그렇지 않으면** AskUserQuestion을 사용합니다:
-- 질문: "gstack **v{new}**를 사용할 수 있습니다 (현재 v{old}). 지금 업그레이드하겠습니까?"
-- 옵션: ["지금 업그레이드", "항상 최신 상태 유지", "나중에", "다시 묻지 않기"]
+**Otherwise**, use AskUserQuestion:
+- Question: "gstack **v{new}** is available (you're on v{old}). Upgrade now?"
+- Options: ["Yes, upgrade now", "Always keep me up to date", "Not now", "Never ask again"]
 
-**"지금 업그레이드"를 선택한 경우:** Step 2로 진행합니다.
+**If "Yes, upgrade now":** Proceed to Step 2.
 
-**"항상 최신 상태 유지"를 선택한 경우:**
+**If "Always keep me up to date":**
 ```bash
 ~/.claude/skills/gstack/bin/gstack-config set auto_upgrade true
 ```
-사용자에게 알립니다: "자동 업그레이드가 활성화되었습니다. 향후 업데이트는 자동으로 설치됩니다." 그런 다음 Step 2로 진행합니다.
+Tell user: "Auto-upgrade enabled. Future updates will install automatically." Then proceed to Step 2.
 
-**"나중에"를 선택한 경우:** 점진적 백오프로 snooze 상태를 기록합니다 (첫 번째 snooze = 24시간, 두 번째 = 48시간, 세 번째 이후 = 1주일), 그런 다음 현재 스킬을 계속 진행합니다. 업그레이드에 대해 다시 언급하지 않습니다.
+**If "Not now":** Write snooze state with escalating backoff (first snooze = 24h, second = 48h, third+ = 1 week), then continue with the current skill. Do not mention the upgrade again.
 ```bash
 _SNOOZE_FILE=~/.gstack/update-snoozed
 _REMOTE_VER="{new}"
@@ -62,26 +63,32 @@ _NEW_LEVEL=$((_CUR_LEVEL + 1))
 [ "$_NEW_LEVEL" -gt 3 ] && _NEW_LEVEL=3
 echo "$_REMOTE_VER $_NEW_LEVEL $(date +%s)" > "$_SNOOZE_FILE"
 ```
-참고: `{new}`는 `UPGRADE_AVAILABLE` 출력의 원격 버전입니다 — update check 결과에서 대입합니다.
+Note: `{new}` is the remote version from the `UPGRADE_AVAILABLE` output — substitute it from the update check result.
 
-snooze 기간을 사용자에게 알립니다: "다음 알림은 24시간 후" (또는 레벨에 따라 48시간 또는 1주일). 팁: "자동 업그레이드를 위해 `~/.gstack/config.yaml`에서 `auto_upgrade: true`를 설정하세요."
+Tell user the snooze duration: "Next reminder in 24h" (or 48h or 1 week, depending on level). Tip: "Set `auto_upgrade: true` in `~/.gstack/config.yaml` for automatic upgrades."
 
-**"다시 묻지 않기"를 선택한 경우:**
+**If "Never ask again":**
 ```bash
 ~/.claude/skills/gstack/bin/gstack-config set update_check false
 ```
-사용자에게 알립니다: "업데이트 확인이 비활성화되었습니다. 다시 활성화하려면 `~/.claude/skills/gstack/bin/gstack-config set update_check true`를 실행하세요."
-현재 스킬을 계속 진행합니다.
+Tell user: "Update checks disabled. Run `~/.claude/skills/gstack/bin/gstack-config set update_check true` to re-enable."
+Continue with the current skill.
 
-### Step 2: 설치 유형 감지
+### Step 2: Detect install type
 
 ```bash
 if [ -d "$HOME/.claude/skills/gstack/.git" ]; then
   INSTALL_TYPE="global-git"
   INSTALL_DIR="$HOME/.claude/skills/gstack"
+elif [ -d "$HOME/.gstack/repos/gstack/.git" ]; then
+  INSTALL_TYPE="global-git"
+  INSTALL_DIR="$HOME/.gstack/repos/gstack"
 elif [ -d ".claude/skills/gstack/.git" ]; then
   INSTALL_TYPE="local-git"
   INSTALL_DIR=".claude/skills/gstack"
+elif [ -d ".agents/skills/gstack/.git" ]; then
+  INSTALL_TYPE="local-git"
+  INSTALL_DIR=".agents/skills/gstack"
 elif [ -d ".claude/skills/gstack" ]; then
   INSTALL_TYPE="vendored"
   INSTALL_DIR=".claude/skills/gstack"
@@ -95,21 +102,21 @@ fi
 echo "Install type: $INSTALL_TYPE at $INSTALL_DIR"
 ```
 
-위에서 출력된 설치 유형과 디렉토리 경로는 이후 모든 단계에서 사용됩니다.
+The install type and directory path printed above will be used in all subsequent steps.
 
-### Step 3: 이전 버전 저장
+### Step 3: Save old version
 
-Step 2의 출력에서 설치 디렉토리를 사용합니다:
+Use the install directory from Step 2's output below:
 
 ```bash
 OLD_VERSION=$(cat "$INSTALL_DIR/VERSION" 2>/dev/null || echo "unknown")
 ```
 
-### Step 4: 업그레이드
+### Step 4: Upgrade
 
-Step 2에서 감지된 설치 유형과 디렉토리를 사용합니다:
+Use the install type and directory detected in Step 2:
 
-**git 설치의 경우** (global-git, local-git):
+**For git installs** (global-git, local-git):
 ```bash
 cd "$INSTALL_DIR"
 STASH_OUTPUT=$(git stash 2>&1)
@@ -117,9 +124,9 @@ git fetch origin
 git reset --hard origin/main
 ./setup
 ```
-`$STASH_OUTPUT`에 "Saved working directory"가 포함되면 사용자에게 경고합니다: "참고: 로컬 변경사항이 stash되었습니다. 스킬 디렉토리에서 `git stash pop`을 실행하여 복원하세요."
+If `$STASH_OUTPUT` contains "Saved working directory", warn the user: "Note: local changes were stashed. Run `git stash pop` in the skill directory to restore them."
 
-**벤더링된 설치의 경우** (vendored, vendored-global):
+**For vendored installs** (vendored, vendored-global):
 ```bash
 PARENT=$(dirname "$INSTALL_DIR")
 TMP_DIR=$(mktemp -d)
@@ -130,9 +137,9 @@ cd "$INSTALL_DIR" && ./setup
 rm -rf "$INSTALL_DIR.bak" "$TMP_DIR"
 ```
 
-### Step 4.5: 로컬 벤더링된 복사본 동기화
+### Step 4.5: Sync local vendored copy
 
-Step 2의 설치 디렉토리를 사용합니다. 업데이트가 필요한 로컬 벤더링된 복사본이 있는지 확인합니다:
+Use the install directory from Step 2. Check if there's also a local vendored copy that needs updating:
 
 ```bash
 _ROOT=$(git rev-parse --show-toplevel 2>/dev/null)
@@ -147,7 +154,7 @@ fi
 echo "LOCAL_GSTACK=$LOCAL_GSTACK"
 ```
 
-`LOCAL_GSTACK`이 비어 있지 않으면 새로 업그레이드된 기본 설치에서 복사하여 업데이트합니다 (README 벤더링 설치와 동일한 방식):
+If `LOCAL_GSTACK` is non-empty, update it by copying from the freshly-upgraded primary install (same approach as README vendored install):
 ```bash
 mv "$LOCAL_GSTACK" "$LOCAL_GSTACK.bak"
 cp -Rf "$INSTALL_DIR" "$LOCAL_GSTACK"
@@ -155,9 +162,16 @@ rm -rf "$LOCAL_GSTACK/.git"
 cd "$LOCAL_GSTACK" && ./setup
 rm -rf "$LOCAL_GSTACK.bak"
 ```
-사용자에게 알립니다: "`$LOCAL_GSTACK`의 벤더링된 복사본도 업데이트되었습니다 — 준비되면 `.claude/skills/gstack/`을 commit하세요."
+Tell user: "Also updated vendored copy at `$LOCAL_GSTACK` — commit `.claude/skills/gstack/` when you're ready."
 
-### Step 5: 마커 쓰기 + 캐시 초기화
+If `./setup` fails, restore from backup and warn the user:
+```bash
+rm -rf "$LOCAL_GSTACK"
+mv "$LOCAL_GSTACK.bak" "$LOCAL_GSTACK"
+```
+Tell user: "Sync failed — restored previous version at `$LOCAL_GSTACK`. Run `/gstack-upgrade` manually to retry."
+
+### Step 5: Write marker + clear cache
 
 ```bash
 mkdir -p ~/.gstack
@@ -166,37 +180,54 @@ rm -f ~/.gstack/last-update-check
 rm -f ~/.gstack/update-snoozed
 ```
 
-### Step 6: 새로운 기능 표시
+### Step 6: Show What's New
 
-`$INSTALL_DIR/CHANGELOG.md`를 읽습니다. 이전 버전과 새 버전 사이의 모든 버전 항목을 찾습니다. 주제별로 그룹화하여 5-7개의 bullet으로 요약합니다. 너무 많은 내용을 보여주지 않도록 — 사용자에게 보이는 변경사항에 집중합니다. 중요한 내용이 아닌 한 내부 리팩터링은 건너뜁니다.
+Read `$INSTALL_DIR/CHANGELOG.md`. Find all version entries between the old version and the new version. Summarize as 5-7 bullets grouped by theme. Don't overwhelm — focus on user-facing changes. Skip internal refactors unless they're significant.
 
-형식:
+Format:
 ```
-gstack v{new} — v{old}에서 업그레이드됨!
+gstack v{new} — upgraded from v{old}!
 
-새로운 기능:
+What's new:
 - [bullet 1]
 - [bullet 2]
 - ...
 
-즐거운 작업 되세요!
+Happy shipping!
 ```
 
-### Step 7: 계속 진행
+### Step 7: Continue
 
-새로운 기능을 표시한 후, 사용자가 처음에 실행한 스킬을 계속 진행합니다. 업그레이드가 완료되었으므로 추가 작업이 필요하지 않습니다.
+After showing What's New, continue with whatever skill the user originally invoked. The upgrade is done — no further action needed.
 
 ---
 
-## 단독 사용
+## Standalone usage
 
-`/gstack-upgrade`로 직접 실행 시 (preamble에서 호출하지 않고):
+When invoked directly as `/gstack-upgrade` (not from a preamble):
 
-1. 캐시를 우회하여 강제로 새로운 업데이트 확인:
+1. Force a fresh update check (bypass cache):
 ```bash
-~/.claude/skills/gstack/bin/gstack-update-check --force
+~/.claude/skills/gstack/bin/gstack-update-check --force 2>/dev/null || \
+.claude/skills/gstack/bin/gstack-update-check --force 2>/dev/null || true
 ```
-출력을 사용하여 업그레이드 가능 여부를 확인합니다.
+Use the output to determine if an upgrade is available.
 
-2. `UPGRADE_AVAILABLE <old> <new>`인 경우: 위의 Step 2-6을 따릅니다.
-3. 출력이 없는 경우 (최신 버전): 사용자에게 알립니다 "이미 최신 버전 (v{version})을 사용 중입니다."
+2. If `UPGRADE_AVAILABLE <old> <new>`: follow Steps 2-6 above.
+
+3. If no output (primary is up to date): check for a stale local vendored copy.
+
+Run the Step 2 bash block above to detect the primary install type and directory (`INSTALL_TYPE` and `INSTALL_DIR`). Then run the Step 4.5 detection bash block above to check for a local vendored copy (`LOCAL_GSTACK`).
+
+**If `LOCAL_GSTACK` is empty** (no local vendored copy): tell the user "You're already on the latest version (v{version})."
+
+**If `LOCAL_GSTACK` is non-empty**, compare versions:
+```bash
+PRIMARY_VER=$(cat "$INSTALL_DIR/VERSION" 2>/dev/null || echo "unknown")
+LOCAL_VER=$(cat "$LOCAL_GSTACK/VERSION" 2>/dev/null || echo "unknown")
+echo "PRIMARY=$PRIMARY_VER LOCAL=$LOCAL_VER"
+```
+
+**If versions differ:** follow the Step 4.5 sync bash block above to update the local copy from the primary. Tell user: "Global v{PRIMARY_VER} is up to date. Updated local vendored copy from v{LOCAL_VER} → v{PRIMARY_VER}. Commit `.claude/skills/gstack/` when you're ready."
+
+**If versions match:** tell the user "You're on the latest version (v{PRIMARY_VER}). Global and local vendored copy are both up to date."

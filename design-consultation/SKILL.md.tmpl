@@ -1,11 +1,15 @@
 ---
 name: design-consultation
+preamble-tier: 3
 version: 1.0.0
 description: |
-  Design consultation: understands your product, researches competitors, proposes a
+  Design consultation: understands your product, researches the landscape, proposes a
   complete design system (aesthetic, typography, color, layout, spacing, motion), and
   generates font+color preview pages. Creates DESIGN.md as your project's design source
   of truth. For existing sites, use /plan-design-review to infer the system instead.
+  Use when asked to "design system", "brand guidelines", or "create DESIGN.md".
+  Proactively suggest when starting a new project's UI with no existing
+  design system or DESIGN.md.
 allowed-tools:
   - Bash
   - Read
@@ -46,17 +50,23 @@ cat package.json 2>/dev/null | head -20
 ls src/ app/ pages/ components/ 2>/dev/null | head -30
 ```
 
-Look for brainstorm output:
+Look for office-hours output:
 
 ```bash
-SLUG=$(git remote get-url origin 2>/dev/null | sed 's|.*[:/]\([^/]*/[^/]*\)\.git$|\1|;s|.*[:/]\([^/]*/[^/]*\)$|\1|' | tr '/' '-')
-ls ~/.gstack/projects/$SLUG/*brainstorm* 2>/dev/null | head -5
-ls .context/*brainstorm* .context/attachments/*brainstorm* 2>/dev/null | head -5
+{{SLUG_EVAL}}
+ls ~/.gstack/projects/$SLUG/*office-hours* 2>/dev/null | head -5
+ls .context/*office-hours* .context/attachments/*office-hours* 2>/dev/null | head -5
 ```
 
-If brainstorm output exists, read it — the product context is pre-filled.
+If office-hours output exists, read it — the product context is pre-filled.
 
-If the codebase is empty and purpose is unclear, say: *"I don't have a clear picture of what you're building yet. Want to brainstorm first with `/brainstorm`? Once we know the product direction, we can set up the design system."*
+If the codebase is empty and purpose is unclear, say: *"I don't have a clear picture of what you're building yet. Want to explore first with `/office-hours`? Once we know the product direction, we can set up the design system."*
+
+**Find the browse binary (optional — enables visual competitive research):**
+
+{{BROWSE_SETUP}}
+
+If browse is not available, that's fine — visual research is optional. The skill works without it using WebSearch and your built-in design knowledge.
 
 ---
 
@@ -70,7 +80,7 @@ Ask the user a single question that covers everything you need to know. Pre-fill
 3. "Want me to research what top products in your space are doing for design, or should I work from my design knowledge?"
 4. **Explicitly say:** "At any point you can just drop into chat and we'll talk through anything — this isn't a rigid form, it's a conversation."
 
-If the README or brainstorm gives you enough context, pre-fill and confirm: *"From what I can see, this is [X] for [Y] in the [Z] space. Sound right? And would you like me to research competitors, or should I work from what I know?"*
+If the README or office-hours output gives you enough context, pre-fill and confirm: *"From what I can see, this is [X] for [Y] in the [Z] space. Sound right? And would you like me to research what's out there in this space, or should I work from what I know?"*
 
 ---
 
@@ -78,27 +88,57 @@ If the README or brainstorm gives you enough context, pre-fill and confirm: *"Fr
 
 If the user wants competitive research:
 
+**Step 1: Identify what's out there via WebSearch**
+
 Use WebSearch to find 5-10 products in their space. Search for:
 - "[product category] website design"
 - "[product category] best websites 2025"
 - "best [industry] web apps"
 
-For each competitor found, note: fonts used, color palette, layout approach, aesthetic direction.
+**Step 2: Visual research via browse (if available)**
 
-Summarize your findings conversationally:
-> "I looked at [competitors]. They tend toward [patterns] — lots of [common choices]. The opportunity to be distinctive is [gap]. Here's what I'd recommend based on this..."
+If the browse binary is available (`$B` is set), visit the top 3-5 sites in the space and capture visual evidence:
 
-If WebSearch is unavailable or returns poor results, fall back gracefully: *"Couldn't get good research results, so I'll work from my design knowledge of the [industry] space."*
+```bash
+$B goto "https://example-site.com"
+$B screenshot "/tmp/design-research-site-name.png"
+$B snapshot
+```
+
+For each site, analyze: fonts actually used, color palette, layout approach, spacing density, aesthetic direction. The screenshot gives you the feel; the snapshot gives you structural data.
+
+If a site blocks the headless browser or requires login, skip it and note why.
+
+If browse is not available, rely on WebSearch results and your built-in design knowledge — this is fine.
+
+**Step 3: Synthesize findings**
+
+**Three-layer synthesis:**
+- **Layer 1 (tried and true):** What design patterns does every product in this category share? These are table stakes — users expect them.
+- **Layer 2 (new and popular):** What are the search results and current design discourse saying? What's trending? What new patterns are emerging?
+- **Layer 3 (first principles):** Given what we know about THIS product's users and positioning — is there a reason the conventional design approach is wrong? Where should we deliberately break from the category norms?
+
+**Eureka check:** If Layer 3 reasoning reveals a genuine design insight — a reason the category's visual language fails THIS product — name it: "EUREKA: Every [category] product does X because they assume [assumption]. But this product's users [evidence] — so we should do Y instead." Log the eureka moment (see preamble).
+
+Summarize conversationally:
+> "I looked at what's out there. Here's the landscape: they converge on [patterns]. Most of them feel [observation — e.g., interchangeable, polished but generic, etc.]. The opportunity to stand out is [gap]. Here's where I'd play it safe and where I'd take a risk..."
+
+**Graceful degradation:**
+- Browse available → screenshots + snapshots + WebSearch (richest research)
+- Browse unavailable → WebSearch only (still good)
+- WebSearch also unavailable → agent's built-in design knowledge (always works)
 
 If the user said no research, skip entirely and proceed to Phase 3 using your built-in design knowledge.
 
 ---
 
+{{DESIGN_OUTSIDE_VOICES}}
+
 ## Phase 3: The Complete Proposal
 
 This is the soul of the skill. Propose EVERYTHING as one coherent package.
 
-**AskUserQuestion Q2 — present the full proposal:**
+**AskUserQuestion Q2 — present the full proposal with SAFE/RISK breakdown:**
 
 ```
 Based on [product context] and [research findings / my design knowledge]:
@@ -113,12 +153,21 @@ MOTION: [approach] — [rationale]
 
 This system is coherent because [explain how choices reinforce each other].
 
-Want to adjust anything? You can drill into any section, or just tell me
-what feels off and I'll rework it. Or if this looks right, I'll generate
-a preview page so you can see the fonts and colors rendered.
+SAFE CHOICES (category baseline — your users expect these):
+  - [2-3 decisions that match category conventions, with rationale for playing safe]
+
+RISKS (where your product gets its own face):
+  - [2-3 deliberate departures from convention]
+  - For each risk: what it is, why it works, what you gain, what it costs
+
+The safe choices keep you literate in your category. The risks are where
+your product becomes memorable. Which risks appeal to you? Want to see
+different ones? Or adjust anything else?
 ```
 
-**Options:** A) Looks great — generate the preview page. B) I want to adjust [section]. C) Start over with a different direction. D) Skip the preview, just write DESIGN.md.
+The SAFE/RISK breakdown is critical. Design coherence is table stakes — every product in a category can be coherent and still look identical. The real question is: where do you take creative risks? The agent should always propose at least 2 risks, each with a clear rationale for why the risk is worth taking and what the user gives up. Risks might include: an unexpected typeface for the category, a bold accent color nobody else uses, tighter or looser spacing than the norm, a layout approach that breaks from convention, motion choices that add personality.
+
+**Options:** A) Looks great — generate the preview page. B) I want to adjust [section]. C) I want different risks — show me wilder options. D) Start over with a different direction. E) Skip the preview, just write DESIGN.md.
 
 ### Your Design Knowledge (use to inform proposals — do NOT display as tables)
 
@@ -208,7 +257,7 @@ The agent writes a **single, self-contained HTML file** (no framework dependenci
 1. **Loads proposed fonts** from Google Fonts (or Bunny Fonts) via `<link>` tags
 2. **Uses the proposed color palette** throughout — dogfood the design system
 3. **Shows the product name** (not "Lorem Ipsum") as the hero heading
-4. **Font comparison section:**
+4. **Font specimen section:**
    - Each font candidate shown in its proposed role (hero heading, body paragraph, button label, data table row)
    - Side-by-side comparison if multiple candidates for one role
    - Real content that matches the product (e.g., civic tech → government data examples)
@@ -216,11 +265,17 @@ The agent writes a **single, self-contained HTML file** (no framework dependenci
    - Swatches with hex values and names
    - Sample UI components rendered in the palette: buttons (primary, secondary, ghost), cards, form inputs, alerts (success, warning, error, info)
    - Background/text color combinations showing contrast
-6. **Light/dark mode toggle** using CSS custom properties and a JS toggle button
-7. **Clean, professional layout** — the preview page IS a taste signal for the skill
-8. **Responsive** — looks good on any screen width
+6. **Realistic product mockups** — this is what makes the preview page powerful. Based on the project type from Phase 1, render 2-3 realistic page layouts using the full design system:
+   - **Dashboard / web app:** sample data table with metrics, sidebar nav, header with user avatar, stat cards
+   - **Marketing site:** hero section with real copy, feature highlights, testimonial block, CTA
+   - **Settings / admin:** form with labeled inputs, toggle switches, dropdowns, save button
+   - **Auth / onboarding:** login form with social buttons, branding, input validation states
+   - Use the product name, realistic content for the domain, and the proposed spacing/layout/border-radius. The user should see their product (roughly) before writing any code.
+7. **Light/dark mode toggle** using CSS custom properties and a JS toggle button
+8. **Clean, professional layout** — the preview page IS a taste signal for the skill
+9. **Responsive** — looks good on any screen width
 
-The page should make the user think "oh nice, they thought of this." It's selling the design system visually, not just listing hex codes.
+The page should make the user think "oh nice, they thought of this." It's selling the design system by showing what the product could feel like, not just listing hex codes and font names.
 
 If `open` fails (headless environment), tell the user: *"I wrote the preview to [path] — open it in your browser to see the fonts and colors rendered."*
 

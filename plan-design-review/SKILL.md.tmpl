@@ -1,5 +1,6 @@
 ---
 name: plan-design-review
+preamble-tier: 3
 version: 2.0.0
 description: |
   Designer's eye plan review — interactive, like CEO and Eng review.
@@ -7,6 +8,8 @@ description: |
   then fixes the plan to get there. Works in plan mode. For live site
   visual audits, use /design-review. Use when asked to "review the design plan"
   or "design critique".
+  Proactively suggest when the user has a plan with UI/UX components that
+  should be reviewed before implementation.
 allowed-tools:
   - Read
   - Edit
@@ -126,6 +129,8 @@ AskUserQuestion: "I've rated this plan {N}/10 on design completeness. The bigges
 
 **STOP.** Do NOT proceed until user responds.
 
+{{DESIGN_OUTSIDE_VOICES}}
+
 ## The 0-10 Rating Method
 
 For each design section, rate the plan 0-10 on that dimension. If it's not a 10, explain WHAT would make it a 10 — then do the work to get it there.
@@ -174,6 +179,8 @@ Apply time-horizon design: 5-sec visceral, 5-min behavioral, 5-year reflective.
 ### Pass 4: AI Slop Risk
 Rate 0-10: Does the plan describe specific, intentional UI — or generic patterns?
 FIX TO 10: Rewrite vague UI descriptions with specific alternatives.
+
+{{DESIGN_HARD_RULES}}
 - "Cards with icons" → what differentiates these from every SaaS template?
 - "Hero section" → what makes this hero feel like THIS product?
 - "Clean, modern UI" → meaningless. Replace with actual design decisions.
@@ -264,22 +271,45 @@ If any AskUserQuestion goes unanswered, note it here. Never silently default to 
 
 ## Review Log
 
-After producing the Completion Summary above, persist the review result:
+After producing the Completion Summary above, persist the review result.
+
+**PLAN MODE EXCEPTION — ALWAYS RUN:** This command writes review metadata to
+`~/.gstack/` (user config directory, not project files). The skill preamble
+already writes to `~/.gstack/sessions/` and `~/.gstack/analytics/` — this is
+the same pattern. The review dashboard depends on this data. Skipping this
+command breaks the review readiness dashboard in /ship.
 
 ```bash
-eval $(~/.claude/skills/gstack/bin/gstack-slug 2>/dev/null)
-mkdir -p ~/.gstack/projects/$SLUG
-echo '{"skill":"plan-design-review","timestamp":"TIMESTAMP","status":"STATUS","overall_score":N,"unresolved":N,"decisions_made":N}' >> ~/.gstack/projects/$SLUG/$BRANCH-reviews.jsonl
+~/.claude/skills/gstack/bin/gstack-review-log '{"skill":"plan-design-review","timestamp":"TIMESTAMP","status":"STATUS","initial_score":N,"overall_score":N,"unresolved":N,"decisions_made":N,"commit":"COMMIT"}'
 ```
 
 Substitute values from the Completion Summary:
 - **TIMESTAMP**: current ISO 8601 datetime
 - **STATUS**: "clean" if overall score 8+ AND 0 unresolved; otherwise "issues_open"
-- **overall_score**: final overall design score (0-10)
+- **initial_score**: initial overall design score before fixes (0-10)
+- **overall_score**: final overall design score after fixes (0-10)
 - **unresolved**: number of unresolved design decisions
 - **decisions_made**: number of design decisions added to the plan
+- **COMMIT**: output of `git rev-parse --short HEAD`
 
 {{REVIEW_DASHBOARD}}
+
+{{PLAN_FILE_REVIEW_REPORT}}
+
+## Next Steps — Review Chaining
+
+After displaying the Review Readiness Dashboard, recommend the next review(s) based on what this design review discovered. Read the dashboard output to see which reviews have already been run and whether they are stale.
+
+**Recommend /plan-eng-review if eng review is not skipped globally** — check the dashboard output for `skip_eng_review`. If it is `true`, eng review is opted out — do not recommend it. Otherwise, eng review is the required shipping gate. If this design review added significant interaction specifications, new user flows, or changed the information architecture, emphasize that eng review needs to validate the architectural implications. If an eng review already exists but the commit hash shows it predates this design review, note that it may be stale and should be re-run.
+
+**Consider recommending /plan-ceo-review** — but only if this design review revealed fundamental product direction gaps. Specifically: if the overall design score started below 4/10, if the information architecture had major structural problems, or if the review surfaced questions about whether the right problem is being solved. AND no CEO review exists in the dashboard. This is a selective recommendation — most design reviews should NOT trigger a CEO review.
+
+**If both are needed, recommend eng review first** (required gate).
+
+Use AskUserQuestion to present the next step. Include only applicable options:
+- **A)** Run /plan-eng-review next (required gate)
+- **B)** Run /plan-ceo-review (only if fundamental product gaps found)
+- **C)** Skip — I'll handle reviews manually
 
 ## Formatting Rules
 * NUMBER issues (1, 2, 3...) and LETTERS for options (A, B, C...).

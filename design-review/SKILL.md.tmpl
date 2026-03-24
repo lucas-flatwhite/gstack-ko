@@ -1,11 +1,15 @@
 ---
 name: design-review
+preamble-tier: 4
 version: 2.0.0
 description: |
   Designer's eye QA: finds visual inconsistency, spacing issues, hierarchy problems,
   AI slop patterns, and slow interactions — then fixes them. Iteratively fixes issues
   in source code, committing each fix atomically and re-verifying with before/after
-  screenshots. For report-only mode, use /plan-design-review instead.
+  screenshots. For plan-mode design review (before implementation), use /plan-design-review.
+  Use when asked to "audit the design", "visual QA", "check if it looks good", or "design polish".
+  Proactively suggest when the user mentions visual inconsistencies or
+  wants to polish the look of a live site.
 allowed-tools:
   - Bash
   - Read
@@ -42,18 +46,31 @@ You are a senior product designer AND a frontend engineer. Review live sites wit
 
 Look for `DESIGN.md`, `design-system.md`, or similar in the repo root. If found, read it — all design decisions must be calibrated against it. Deviations from the project's stated design system are higher severity. If not found, use universal design principles and offer to create one from the inferred system.
 
-**Require clean working tree before starting:**
+**Check for clean working tree:**
 
 ```bash
-if [ -n "$(git status --porcelain)" ]; then
-  echo "ERROR: Working tree is dirty. Commit or stash changes before running /design-review."
-  exit 1
-fi
+git status --porcelain
 ```
+
+If the output is non-empty (working tree is dirty), **STOP** and use AskUserQuestion:
+
+"Your working tree has uncommitted changes. /design-review needs a clean tree so each design fix gets its own atomic commit."
+
+- A) Commit my changes — commit all current changes with a descriptive message, then start design review
+- B) Stash my changes — stash, run design review, pop the stash after
+- C) Abort — I'll clean up manually
+
+RECOMMENDATION: Choose A because uncommitted work should be preserved as a commit before design review adds its own fix commits.
+
+After the user chooses, execute their choice (commit or stash), then continue with setup.
 
 **Find the browse binary:**
 
 {{BROWSE_SETUP}}
+
+**Check test framework (bootstrap if needed):**
+
+{{TEST_BOOTSTRAP}}
 
 **Create output directories:**
 
@@ -67,6 +84,8 @@ mkdir -p "$REPORT_DIR/screenshots"
 ## Phases 1-6: Design Audit Baseline
 
 {{DESIGN_METHODOLOGY}}
+
+{{DESIGN_HARD_RULES}}
 
 Record baseline design score and AI slop score at end of Phase 6.
 
@@ -90,6 +109,8 @@ Record baseline design score and AI slop score at end of Phase 6.
 ```
 
 ---
+
+{{DESIGN_OUTSIDE_VOICES}}
 
 ## Phase 7: Triage
 
@@ -154,6 +175,18 @@ Take **before/after screenshot pair** for every fix.
 - **best-effort**: fix applied but couldn't fully verify (e.g., needs specific browser state)
 - **reverted**: regression detected → `git revert HEAD` → mark finding as "deferred"
 
+### 8e.5. Regression Test (design-review variant)
+
+Design fixes are typically CSS-only. Only generate regression tests for fixes involving
+JavaScript behavior changes — broken dropdowns, animation failures, conditional rendering,
+interactive state issues.
+
+For CSS-only fixes: skip entirely. CSS regressions are caught by re-running /design-review.
+
+If the fix involved JS behavior: follow the same procedure as /qa Phase 8e.5 (study existing
+test patterns, write a regression test encoding the exact bug condition, run it, commit if
+passes or defer if fails). Commit format: `test(design): regression test for FINDING-NNN`.
+
 ### 8f. Self-Regulation (STOP AND EVALUATE)
 
 Every 5 fixes (or after any revert), compute the design-fix risk level:
@@ -192,8 +225,7 @@ Write the report to both local and project-scoped locations:
 
 **Project-scoped:**
 ```bash
-SLUG=$(git remote get-url origin 2>/dev/null | sed 's|.*[:/]\([^/]*/[^/]*\)\.git$|\1|;s|.*[:/]\([^/]*/[^/]*\)$|\1|' | tr '/' '-')
-mkdir -p ~/.gstack/projects/$SLUG
+{{SLUG_SETUP}}
 ```
 Write to `~/.gstack/projects/{slug}/{user}-{branch}-design-audit-{datetime}.md`
 
@@ -226,9 +258,9 @@ If the repo has a `TODOS.md`:
 
 ## Additional Rules (design-review specific)
 
-11. **Clean working tree required.** Refuse to start if `git status --porcelain` is non-empty.
+11. **Clean working tree required.** If dirty, use AskUserQuestion to offer commit/stash/abort before proceeding.
 12. **One commit per fix.** Never bundle multiple design fixes into one commit.
-13. **Never modify tests or CI configuration.** Only fix application source code and styles.
+13. **Only modify tests when generating regression tests in Phase 8e.5.** Never modify CI configuration. Never modify existing tests — only create new test files.
 14. **Revert on regression.** If a fix makes things worse, `git revert HEAD` immediately.
 15. **Self-regulate.** Follow the design-fix risk heuristic. When in doubt, stop and ask.
 16. **CSS-first.** Prefer CSS/styling changes over structural component changes. CSS-only changes are safer and more reversible.
