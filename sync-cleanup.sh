@@ -12,18 +12,40 @@
 set -e
 
 REMOVE=(
+  # 빌드 툴링 / 런타임
   bin/
   scripts/
-  test/
-  browse/src/
-  browse/test/
-  package.json
-  conductor.json
-  VERSION
-  SKILL.md.tmpl
+  lib/
   setup
+  package.json
   bun.lock
   tsconfig.json
+  conductor.json
+  VERSION
+  actionlint.yaml
+
+  # 테스트
+  test/
+
+  # 브라우저 소스/테스트
+  browse/src/
+  browse/test/
+
+  # 에이전트 설정 (Codex/Gemini)
+  .agents/
+  agents/
+
+  # CI/CD
+  .github/
+
+  # 인프라
+  supabase/
+
+  # 생성용 템플릿 (SKILL.md만 유지)
+  SKILL.md.tmpl
+
+  # 생성된 스킬 목록 (빌드 산출물)
+  docs/skills.md
 )
 
 echo "▶ 번역 불필요 파일 제거 중..."
@@ -35,6 +57,13 @@ for path in "${REMOVE[@]}"; do
     echo "  삭제: $path"
     changed=1
   fi
+done
+
+# 스킬별 SKILL.md.tmpl 제거 (최상위 이외)
+for tmpl in $(git ls-files '*/SKILL.md.tmpl' 2>/dev/null); do
+  git rm --quiet "$tmpl"
+  echo "  삭제: $tmpl"
+  changed=1
 done
 
 if [ "$changed" -eq 0 ]; then
