@@ -1,0 +1,57 @@
+#!/bin/bash
+set -euo pipefail
+
+# gstack-ko browse setup script
+# Builds the browse binary from the original garrytan/gstack repository.
+# Requirements: bun (https://bun.sh)
+
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+ORIGINAL_REPO="https://github.com/garrytan/gstack.git"
+TMP_DIR="$(mktemp -d)"
+
+cleanup() { rm -rf "$TMP_DIR"; }
+trap cleanup EXIT
+
+# Check bun
+if ! command -v bun &>/dev/null; then
+  echo "bun not found. Installing..."
+  curl -fsSL https://bun.sh/install | bash
+  export PATH="$HOME/.bun/bin:$PATH"
+fi
+
+echo "[setup] Cloning original gstack repository..."
+git clone --depth 1 "$ORIGINAL_REPO" "$TMP_DIR" 2>&1 | grep -v "^remote:"
+
+echo "[setup] Installing dependencies..."
+cd "$TMP_DIR"
+bun install --production 2>&1 | tail -3
+
+echo "[setup] Building browse binaries..."
+mkdir -p browse/dist
+bun build --compile browse/src/cli.ts --outfile browse/dist/browse
+bun build --compile browse/src/find-browse.ts --outfile browse/dist/find-browse
+git rev-parse HEAD > browse/dist/.version
+
+echo "[setup] Copying binaries to gstack-ko..."
+mkdir -p "$SCRIPT_DIR/browse/dist"
+cp browse/dist/browse "$SCRIPT_DIR/browse/dist/browse"
+cp browse/dist/find-browse "$SCRIPT_DIR/browse/dist/find-browse"
+cp browse/dist/.version "$SCRIPT_DIR/browse/dist/.version"
+chmod +x "$SCRIPT_DIR/browse/dist/browse" "$SCRIPT_DIR/browse/dist/find-browse"
+
+echo "[setup] Copying browse source (required at runtime by server)..."
+mkdir -p "$SCRIPT_DIR/browse/src"
+cp browse/src/*.ts "$SCRIPT_DIR/browse/src/"
+
+echo "[setup] Installing runtime dependencies..."
+cp package.json "$SCRIPT_DIR/package.json"
+cd "$SCRIPT_DIR"
+bun install --production 2>&1 | tail -3
+
+echo "[setup] Verifying..."
+if "$SCRIPT_DIR/browse/dist/browse" status 2>&1 | grep -q "healthy\|Starting"; then
+  echo "[setup] Done! browse is ready."
+else
+  echo "[setup] Warning: browse binary built but health check failed."
+  echo "[setup] Try: $SCRIPT_DIR/browse/dist/browse status"
+fi
