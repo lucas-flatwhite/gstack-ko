@@ -1,5 +1,19 @@
 # TODOS
 
+## Builder Ethos
+
+### First-time Search Before Building intro
+
+**What:** Add a `generateSearchIntro()` function (like `generateLakeIntro()`) that introduces the Search Before Building principle on first use, with a link to the blog essay.
+
+**Why:** Boil the Lake has an intro flow that links to the essay and marks `.completeness-intro-seen`. Search Before Building should have the same pattern for discoverability.
+
+**Context:** Blocked on a blog post to link to. When the essay exists, add the intro flow with a `.search-intro-seen` marker file. Pattern: `generateLakeIntro()` at gen-skill-docs.ts:176.
+
+**Effort:** S
+**Priority:** P2
+**Depends on:** Blog post about Search Before Building
+
 ## Browse
 
 ### Bundle server.ts into compiled binary
@@ -52,7 +66,9 @@
 
 **Why:** Enables "resume where I left off" for QA sessions and repeatable auth states.
 
-**Effort:** M
+**Context:** The `saveState()`/`restoreState()` helpers from the handoff feature (browser-manager.ts) already capture cookies + localStorage + sessionStorage + URLs. Adding file I/O on top is ~20 lines.
+
+**Effort:** S
 **Priority:** P3
 **Depends on:** Sessions
 
@@ -138,14 +154,17 @@
 **Effort:** M
 **Priority:** P4
 
-### Linux/Windows cookie decryption
+### Linux cookie decryption — PARTIALLY SHIPPED
 
-**What:** GNOME Keyring / kwallet / DPAPI support for non-macOS cookie import.
+~~**What:** GNOME Keyring / kwallet / DPAPI support for non-macOS cookie import.~~
 
-**Why:** Cross-platform cookie import. Currently macOS-only (Keychain).
+Linux cookie import shipped in v0.11.11.0 (Wave 3). Supports Chrome, Chromium, Brave, Edge on Linux with GNOME Keyring (libsecret) and "peanuts" fallback. Windows DPAPI support remains deferred.
 
-**Effort:** L
+**Remaining:** Windows cookie decryption (DPAPI). Needs complete rewrite — PR #64 was 1346 lines and stale.
+
+**Effort:** L (Windows only)
 **Priority:** P4
+**Completed (Linux):** v0.11.11.0 (2026-03-23)
 
 ## Ship
 
@@ -161,17 +180,6 @@
 **Priority:** P2
 **Depends on:** None
 
-### Post-deploy verification (ship + browse)
-
-**What:** After push, browse staging/preview URL, screenshot key pages, check console for JS errors, compare staging vs prod via snapshot diff. Include verification screenshots in PR body. STOP if critical errors found.
-
-**Why:** Catch deployment-time regressions (JS errors, broken layouts) before merge.
-
-**Context:** Requires S3 upload infrastructure for PR screenshots. Pairs with visual PR annotations.
-
-**Effort:** L
-**Priority:** P2
-**Depends on:** /setup-gstack-upload, visual PR annotations
 
 ### Visual verification with screenshots in PR body
 
@@ -263,6 +271,30 @@
 **Effort:** S
 **Priority:** P3
 
+### CI/CD generation for non-GitHub providers
+
+**What:** Extend CI/CD bootstrap to generate GitLab CI (`.gitlab-ci.yml`), CircleCI (`.circleci/config.yml`), and Bitrise pipelines.
+
+**Why:** Not all projects use GitHub Actions. Universal CI/CD bootstrap would make test bootstrap work for everyone.
+
+**Context:** v1 ships with GitHub Actions only. Detection logic already checks for `.gitlab-ci.yml`, `.circleci/`, `bitrise.yml` and skips with an informational note. Each provider needs ~20 lines of template text in `generateTestBootstrap()`.
+
+**Effort:** M
+**Priority:** P3
+**Depends on:** Test bootstrap (shipped)
+
+### Auto-upgrade weak tests (★) to strong tests (★★★)
+
+**What:** When Step 3.4 coverage audit identifies existing ★-rated tests (smoke/trivial assertions), generate improved versions testing edge cases and error paths.
+
+**Why:** Many codebases have tests that technically exist but don't catch real bugs — `expect(component).toBeDefined()` isn't testing behavior. Upgrading these closes the gap between "has tests" and "has good tests."
+
+**Context:** Requires the quality scoring rubric from the test coverage audit. Modifying existing test files is riskier than creating new ones — needs careful diffing to ensure the upgraded test still passes. Consider creating a companion test file rather than modifying the original.
+
+**Effort:** M
+**Priority:** P3
+**Depends on:** Test quality scoring (shipped)
+
 ## Retro
 
 ### Deployment health tracking (retro + browse)
@@ -308,35 +340,25 @@
 **Priority:** P3
 **Depends on:** Video recording
 
-### Deploy-verify skill
 
-**What:** Lightweight post-deploy smoke test: hit key URLs, verify 200s, screenshot critical pages, console error check, compare against baseline snapshots. Pass/fail with evidence.
 
-**Why:** Fast post-deploy confidence check, separate from full QA.
+### Extend worktree isolation to Claude E2E tests
 
-**Effort:** M
-**Priority:** P2
+**What:** Add `useWorktree?: boolean` option to `runSkillTest()` so any Claude E2E test can opt into worktree mode for full repo context instead of tmpdir fixtures.
 
-### GitHub Actions eval upload
+**Why:** Some Claude E2E tests (CSO audit, review-sql-injection) create minimal fake repos but would produce more realistic results with full repo context. The infrastructure exists (`describeWithWorktree()` in e2e-helpers.ts) — this extends it to the session-runner level.
 
-**What:** Run eval suite in CI, upload result JSON as artifact, post summary comment on PR.
+**Context:** WorktreeManager shipped in v0.11.12.0. Currently only Gemini/Codex tests use worktrees. Claude tests use planted-bug fixture repos which are correct for their purpose, but new tests that want real repo context can use `describeWithWorktree()` today. This TODO is about making it even easier via a flag on `runSkillTest()`.
 
-**Why:** CI integration catches quality regressions before merge and provides persistent eval records per PR.
+**Effort:** M (human: ~2 days / CC: ~20 min)
+**Priority:** P3
+**Depends on:** Worktree isolation (shipped v0.11.12.0)
 
-**Context:** Requires `ANTHROPIC_API_KEY` in CI secrets. Cost is ~$4/run. Eval persistence system (v0.3.6) writes JSON to `~/.gstack-dev/evals/` — CI would upload as GitHub Actions artifacts and use `eval:compare` to post delta comment.
+### E2E model pinning — SHIPPED
 
-**Effort:** M
-**Priority:** P2
-**Depends on:** Eval persistence (shipped in v0.3.6)
+~~**What:** Pin E2E tests to claude-sonnet-4-6 for cost efficiency, add retry:2 for flaky LLM responses.~~
 
-### E2E model pinning
-
-**What:** Pin E2E tests to claude-sonnet-4-6 for cost efficiency, add retry:2 for flaky LLM responses.
-
-**Why:** Reduce E2E test cost and flakiness.
-
-**Effort:** XS
-**Priority:** P2
+Shipped: Default model changed to Sonnet for structure tests (~30), Opus retained for quality tests (~10). `--retry 2` added. `EVALS_MODEL` env var for override. `test:e2e:fast` tier added. Rate-limit telemetry (first_response_ms, max_inter_turn_ms) and wall_clock_ms tracking added to eval-store.
 
 ### Eval web dashboard
 
@@ -362,6 +384,16 @@
 **Priority:** P2
 **Depends on:** None
 
+### Cross-platform URL open helper
+
+**What:** `gstack-open-url` helper script — detect platform, use `open` (macOS) or `xdg-open` (Linux).
+
+**Why:** The first-time Completeness Principle intro uses macOS `open` to launch the essay. If gstack ever supports Linux, this silently fails.
+
+**Effort:** S (human: ~30 min / CC: ~2 min)
+**Priority:** P4
+**Depends on:** Nothing
+
 ### CDP-based DOM mutation detection for ref staleness
 
 **What:** Use Chrome DevTools Protocol `DOM.documentUpdated` / MutationObserver events to proactively invalidate stale refs when the DOM changes, without requiring an explicit `snapshot` call.
@@ -374,27 +406,65 @@
 **Priority:** P3
 **Depends on:** Ref staleness Parts 1+2 (shipped)
 
+## Office Hours / Design
+
+### Design docs → Supabase team store sync
+
+**What:** Add design docs (`*-design-*.md`) to the Supabase sync pipeline alongside test plans, retro snapshots, and QA reports.
+
+**Why:** Cross-team design discovery at scale. Local `~/.gstack/projects/$SLUG/` keyword-grep discovery works for same-machine users now, but Supabase sync makes it work across the whole team. Duplicate ideas surface, everyone sees what's been explored.
+
+**Context:** /office-hours writes design docs to `~/.gstack/projects/$SLUG/`. The team store already syncs test plans, retro snapshots, QA reports. Design docs follow the same pattern — just add a sync adapter.
+
+**Effort:** S
+**Priority:** P2
+**Depends on:** `garrytan/team-supabase-store` branch landing on main
+
+### /yc-prep skill
+
+**What:** Skill that helps founders prepare their YC application after /office-hours identifies strong signal. Pulls from the design doc, structures answers to YC app questions, runs a mock interview.
+
+**Why:** Closes the loop. /office-hours identifies the founder, /yc-prep helps them apply well. The design doc already contains most of the raw material for a YC application.
+
+**Effort:** M (human: ~2 weeks / CC: ~2 hours)
+**Priority:** P2
+**Depends on:** office-hours founder discovery engine shipping first
+
 ## Design Review
 
-### /design-consultation interactive skill — SHIPPED
+### /plan-design-review + /qa-design-review + /design-consultation — SHIPPED
 
-~~**What:** Interactive skill that walks user through creating a DESIGN.md from scratch.~~
+Shipped as v0.5.0 on main. Includes `/plan-design-review` (report-only design audit), `/qa-design-review` (audit + fix loop), and `/design-consultation` (interactive DESIGN.md creation). `{{DESIGN_METHODOLOGY}}` resolver provides shared 80-item design audit checklist.
 
-Shipped as `/design-consultation` on garrytan/design branch. Renamed from `/setup-design-md` to reflect the consultant approach (agent proposes a complete coherent system, user adjusts). Includes competitive research via WebSearch, combined font+color preview page, coherence validation, and LLM-judged E2E tests.
+### Design outside voices in /plan-eng-review
+
+**What:** Extend the parallel dual-voice pattern (Codex + Claude subagent) to /plan-eng-review's architecture review section.
+
+**Why:** The design beachhead (v0.11.3.0) proves cross-model consensus works for subjective reviews. Architecture reviews have similar subjectivity in tradeoff decisions.
+
+**Context:** Depends on learnings from the design beachhead. If the litmus scorecard format proves useful, adapt it for architecture dimensions (coupling, scaling, reversibility).
+
+**Effort:** S
+**Priority:** P3
+**Depends on:** Design outside voices shipped (v0.11.3.0)
+
+### Outside voices in /qa visual regression detection
+
+**What:** Add Codex design voice to /qa for detecting visual regressions during bug-fix verification.
+
+**Why:** When fixing bugs, the fix can introduce visual regressions that code-level checks miss. Codex could flag "the fix broke the responsive layout" during re-test.
+
+**Context:** Depends on /qa having design awareness. Currently /qa focuses on functional testing.
+
+**Effort:** M
+**Priority:** P3
+**Depends on:** Design outside voices shipped (v0.11.3.0)
 
 ## Document-Release
 
-### Auto-invoke /document-release from /ship
+### Auto-invoke /document-release from /ship — SHIPPED
 
-**What:** Add Step 8.5 to /ship that reads document-release/SKILL.md and executes the doc update workflow after creating the PR.
-
-**Why:** Zero-friction doc updates — user runs /ship and docs are automatically current. No extra command to remember.
-
-**Context:** /ship currently ends at Step 8 (PR URL output). Step 8.5 would continue into the document-release workflow. Same pattern as /ship calling /review's checklist in Step 3.5.
-
-**Effort:** S
-**Priority:** P1
-**Depends on:** /document-release shipped
+Shipped in v0.8.3. Step 8.5 added to `/ship` — after creating the PR, `/ship` automatically reads `document-release/SKILL.md` and executes the doc update workflow. Zero-friction doc updates.
 
 ### `{{DOC_VOICE}}` shared resolver
 
@@ -408,7 +478,103 @@ Shipped as `/design-consultation` on garrytan/design branch. Renamed from `/setu
 **Priority:** P2
 **Depends on:** None
 
+## Ship Confidence Dashboard
+
+### Smart review relevance detection — PARTIALLY SHIPPED
+
+~~**What:** Auto-detect which of the 4 reviews are relevant based on branch changes (skip Design Review if no CSS/view changes, skip Code Review if plan-only).~~
+
+`bin/gstack-diff-scope` shipped — categorizes diff into SCOPE_FRONTEND, SCOPE_BACKEND, SCOPE_PROMPTS, SCOPE_TESTS, SCOPE_DOCS, SCOPE_CONFIG. Used by design-review-lite to skip when no frontend files changed. Dashboard integration for conditional row display is a follow-up.
+
+**Remaining:** Dashboard conditional row display (hide "Design Review: NOT YET RUN" when SCOPE_FRONTEND=false). Extend to Eng Review (skip for docs-only) and CEO Review (skip for config-only).
+
+**Effort:** S
+**Priority:** P3
+**Depends on:** gstack-diff-scope (shipped)
+
+
+## Codex
+
+### Codex→Claude reverse buddy check skill
+
+**What:** A Codex-native skill (`.agents/skills/gstack-claude/SKILL.md`) that runs `claude -p` to get an independent second opinion from Claude — the reverse of what `/codex` does today from Claude Code.
+
+**Why:** Codex users deserve the same cross-model challenge that Claude users get via `/codex`. Currently the flow is one-way (Claude→Codex). Codex users have no way to get a Claude second opinion.
+
+**Context:** The `/codex` skill template (`codex/SKILL.md.tmpl`) shows the pattern — it wraps `codex exec` with JSONL parsing, timeout handling, and structured output. The reverse skill would wrap `claude -p` with similar infrastructure. Would be generated into `.agents/skills/gstack-claude/` by `gen-skill-docs --host codex`.
+
+**Effort:** M (human: ~2 weeks / CC: ~30 min)
+**Priority:** P1
+**Depends on:** None
+
+## Completeness
+
+### Completeness metrics dashboard
+
+**What:** Track how often Claude chooses the complete option vs shortcut across gstack sessions. Aggregate into a dashboard showing completeness trend over time.
+
+**Why:** Without measurement, we can't know if the Completeness Principle is working. Could surface patterns (e.g., certain skills still bias toward shortcuts).
+
+**Context:** Would require logging choices (e.g., append to a JSONL file when AskUserQuestion resolves), parsing them, and displaying trends. Similar pattern to eval persistence.
+
+**Effort:** M (human) / S (CC)
+**Priority:** P3
+**Depends on:** Boil the Lake shipped (v0.6.1)
+
+## Safety & Observability
+
+### On-demand hook skills (/careful, /freeze, /guard) — SHIPPED
+
+~~**What:** Three new skills that use Claude Code's session-scoped PreToolUse hooks to add safety guardrails on demand.~~
+
+Shipped as `/careful`, `/freeze`, `/guard`, and `/unfreeze` in v0.6.5. Includes hook fire-rate telemetry (pattern name only, no command content) and inline skill activation telemetry.
+
+### Skill usage telemetry — SHIPPED
+
+~~**What:** Track which skills get invoked, how often, from which repo.~~
+
+Shipped in v0.6.5. TemplateContext in gen-skill-docs.ts bakes skill name into preamble telemetry line. Analytics CLI (`bun run analytics`) for querying. /retro integration shows skills-used-this-week.
+
+### /investigate scoped debugging enhancements (gated on telemetry)
+
+**What:** Six enhancements to /investigate auto-freeze, contingent on telemetry showing the freeze hook actually fires in real debugging sessions.
+
+**Why:** /investigate v0.7.1 auto-freezes edits to the module being debugged. If telemetry shows the hook fires often, these enhancements make the experience smarter. If it never fires, the problem wasn't real and these aren't worth building.
+
+**Context:** All items are prose additions to `investigate/SKILL.md.tmpl`. No new scripts.
+
+**Items:**
+1. Stack trace auto-detection for freeze directory (parse deepest app frame)
+2. Freeze boundary widening (ask to widen instead of hard-block when hitting boundary)
+3. Post-fix auto-unfreeze + full test suite run
+4. Debug instrumentation cleanup (tag with DEBUG-TEMP, remove before commit)
+5. Debug session persistence (~/.gstack/investigate-sessions/ — save investigation for reuse)
+6. Investigation timeline in debug report (hypothesis log with timing)
+
+**Effort:** M (all 6 combined)
+**Priority:** P3
+**Depends on:** Telemetry data showing freeze hook fires in real /investigate sessions
+
 ## Completed
+
+### CI eval pipeline (v0.9.9.0)
+- GitHub Actions eval upload on Ubicloud runners ($0.006/run)
+- Within-file test concurrency (test() → testConcurrentIfSelected())
+- Eval artifact upload + PR comment with pass/fail + cost
+- Baseline comparison via artifact download from main
+- EVALS_CONCURRENCY=40 for ~6min wall clock (was ~18min)
+**Completed:** v0.9.9.0
+
+### Deploy pipeline (v0.9.8.0)
+- /land-and-deploy — merge PR, wait for CI/deploy, canary verification
+- /canary — post-deploy monitoring loop with anomaly detection
+- /benchmark — performance regression detection with Core Web Vitals
+- /setup-deploy — one-time deploy platform configuration
+- /review Performance & Bundle Impact pass
+- E2E model pinning (Sonnet default, Opus for quality tests)
+- E2E timing telemetry (first_response_ms, max_inter_turn_ms, wall_clock_ms)
+- test:e2e:fast tier, --retry 2 on all E2E scripts
+**Completed:** v0.9.8.0
 
 ### Phase 1: Foundations (v0.2.0)
 - Rename to gstack

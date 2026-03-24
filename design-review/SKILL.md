@@ -1,12 +1,16 @@
 ---
 name: design-review
+preamble-tier: 4
 version: 2.0.0
 description: |
-  디자이너의 시각으로 QA를 수행합니다: 시각적 일관성 부재, 간격 문제, 위계 오류,
-  AI 생성 패턴, 느린 인터랙션을 발견한 후 수정합니다. 소스 코드에서 문제를
-  반복적으로 수정하고 각 수정을 원자적으로 commit하며 전후 screenshot으로
-  재검증합니다. 보고서 전용 모드는 /plan-design-review를 사용하세요.
-  "디자인 감사", "시각 QA", "디자인 괜찮은지 봐줘", "디자인 폴리싱" 요청 시 사용하세요.
+  MANUAL TRIGGER ONLY: invoke only when user types /design-review.
+  Designer's eye QA: finds visual inconsistency, spacing issues, hierarchy problems,
+  AI slop patterns, and slow interactions — then fixes them. Iteratively fixes issues
+  in source code, committing each fix atomically and re-verifying with before/after
+  screenshots. For plan-mode design review (before implementation), use /plan-design-review.
+  Use when asked to "audit the design", "visual QA", "check if it looks good", or "design polish".
+  Proactively suggest when the user mentions visual inconsistencies or
+  wants to polish the look of a live site.
 allowed-tools:
   - Bash
   - Read
@@ -30,96 +34,273 @@ touch ~/.gstack/sessions/"$PPID"
 _SESSIONS=$(find ~/.gstack/sessions -mmin -120 -type f 2>/dev/null | wc -l | tr -d ' ')
 find ~/.gstack/sessions -mmin +120 -type f -delete 2>/dev/null || true
 _CONTRIB=$(~/.claude/skills/gstack/bin/gstack-config get gstack_contributor 2>/dev/null || true)
+_PROACTIVE=$(~/.claude/skills/gstack/bin/gstack-config get proactive 2>/dev/null || echo "true")
 _BRANCH=$(git branch --show-current 2>/dev/null || echo "unknown")
 echo "BRANCH: $_BRANCH"
+echo "PROACTIVE: $_PROACTIVE"
+source <(~/.claude/skills/gstack/bin/gstack-repo-mode 2>/dev/null) || true
+REPO_MODE=${REPO_MODE:-unknown}
+echo "REPO_MODE: $REPO_MODE"
+_LAKE_SEEN=$([ -f ~/.gstack/.completeness-intro-seen ] && echo "yes" || echo "no")
+echo "LAKE_INTRO: $_LAKE_SEEN"
+_TEL=$(~/.claude/skills/gstack/bin/gstack-config get telemetry 2>/dev/null || true)
+_TEL_PROMPTED=$([ -f ~/.gstack/.telemetry-prompted ] && echo "yes" || echo "no")
+_TEL_START=$(date +%s)
+_SESSION_ID="$$-$(date +%s)"
+echo "TELEMETRY: ${_TEL:-off}"
+echo "TEL_PROMPTED: $_TEL_PROMPTED"
+mkdir -p ~/.gstack/analytics
+echo '{"skill":"design-review","ts":"'$(date -u +%Y-%m-%dT%H:%M:%SZ)'","repo":"'$(basename "$(git rev-parse --show-toplevel 2>/dev/null)" 2>/dev/null || echo "unknown")'"}'  >> ~/.gstack/analytics/skill-usage.jsonl 2>/dev/null || true
+# zsh-compatible: use find instead of glob to avoid NOMATCH error
+for _PF in $(find ~/.gstack/analytics -maxdepth 1 -name '.pending-*' 2>/dev/null); do [ -f "$_PF" ] && ~/.claude/skills/gstack/bin/gstack-telemetry-log --event-type skill_run --skill _pending_finalize --outcome unknown --session-id "$_SESSION_ID" 2>/dev/null || true; break; done
 ```
 
-출력에 `UPGRADE_AVAILABLE <old> <new>`가 표시되면: `~/.claude/skills/gstack/gstack-upgrade/SKILL.md`를 읽고 "인라인 업그레이드 흐름"을 따르세요 (자동 업그레이드가 설정된 경우 자동 업그레이드, 그렇지 않으면 4가지 옵션으로 AskUserQuestion 호출, 거절 시 snooze 상태 기록). `JUST_UPGRADED <from> <to>`가 표시되면: 사용자에게 "Running gstack v{to} (just updated!)"라고 알리고 계속 진행하세요.
+If `PROACTIVE` is `"false"`, do not proactively suggest gstack skills — only invoke
+them when the user explicitly asks. The user opted out of proactive suggestions.
 
-## AskUserQuestion 형식
+If output shows `UPGRADE_AVAILABLE <old> <new>`: read `~/.claude/skills/gstack/gstack-upgrade/SKILL.md` and follow the "Inline upgrade flow" (auto-upgrade if configured, otherwise AskUserQuestion with 4 options, write snooze state if declined). If `JUST_UPGRADED <from> <to>`: tell user "Running gstack v{to} (just updated!)" and continue.
 
-**모든 AskUserQuestion 호출 시 반드시 이 구조를 따르세요:**
-1. **상황 재정립:** 프로젝트, 현재 branch (preamble에서 출력된 `_BRANCH` 값 사용 — 대화 이력이나 gitStatus의 branch를 사용하지 말 것), 현재 계획/작업을 명시합니다. (1-2문장)
-2. **단순화:** 똑똑한 16세도 이해할 수 있는 쉬운 말로 문제를 설명합니다. 함수명 원문, 내부 용어, 구현 세부 사항 금지. 구체적인 예시와 비유를 사용합니다. 무엇을 "하는지"를 말하고, 뭐라고 "부르는지"는 말하지 마세요.
-3. **권장 사항:** `RECOMMENDATION: [X]를 선택하세요. 이유: [한 줄 설명]`
-4. **선택지:** 알파벳 선택지: `A) ... B) ... C) ...`
-
-사용자가 20분째 이 창을 보지 않았고 코드도 열지 않은 상태라고 가정하세요. 설명을 이해하기 위해 소스 코드를 읽어야 한다면 너무 복잡한 것입니다.
-
-스킬별 지침에 따라 이 기본 구조에 추가 서식 규칙이 더해질 수 있습니다.
-
-## 기여자 모드
-
-`_CONTRIB`가 `true`이면: **기여자 모드**입니다. 당신은 gstack을 더 발전시키는 데 기여하는 gstack 사용자입니다.
-
-**각 주요 워크플로우 단계 끝에** (매 명령 실행 후가 아닌), 사용한 gstack 도구에 대해 되돌아보세요. 경험을 0에서 10으로 평가하세요. 10점이 아니라면 이유를 생각해 보세요. 명확하고 실행 가능한 버그가 있거나, gstack 코드나 스킬 마크다운으로 더 잘할 수 있었던 흥미로운 점이 있다면 — 현장 보고서를 제출하세요. 기여자가 우리를 더 발전시키는 데 도움을 줄 수 있습니다!
-
-**기준 — 이 정도가 기준입니다:** 예를 들어, `$B js "await fetch(...)"` 는 gstack이 표현식을 async context로 감싸지 않았기 때문에 `SyntaxError: await is only valid in async functions` 오류가 발생했습니다. 사소하지만, 입력은 합리적이었고 gstack이 처리했어야 했습니다 — 이런 종류의 것이 보고할 가치가 있습니다. 이보다 덜 중요한 것은 무시하세요.
-
-**보고할 필요 없는 것:** 사용자 앱 버그, 사용자 URL에 대한 네트워크 오류, 사용자 사이트의 인증 실패, 사용자 자신의 JS 로직 버그.
-
-**보고 방법:** `~/.gstack/contributor-logs/{slug}.md`에 **아래 모든 섹션을 포함하여** 작성하세요 (날짜/버전 footer까지 모든 섹션을 포함하고 생략하지 마세요):
-
-```
-# {제목}
-
-Hey gstack team — ran into this while using /{skill-name}:
-
-**What I was trying to do:** {사용자/에이전트가 시도한 것}
-**What happened instead:** {실제로 일어난 것}
-**My rating:** {0-10} — {10점이 아닌 이유 한 문장}
-
-## Steps to reproduce
-1. {단계}
-
-## Raw output
-```
-{실제 오류 또는 예상치 못한 출력 붙여넣기}
-```
-
-## What would make this a 10
-{한 문장: gstack이 다르게 했어야 할 것}
-
-**Date:** {YYYY-MM-DD} | **Version:** {gstack version} | **Skill:** /{skill}
-```
-
-Slug: 소문자, 하이픈, 최대 60자 (예: `browse-js-no-await`). 파일이 이미 존재하면 건너뜁니다. 세션당 최대 3개의 보고서. 인라인으로 제출하고 계속 진행하세요 — 워크플로우를 중단하지 마세요. 사용자에게 알립니다: "Filed gstack field report: {title}"
-
-# /design-review: 디자인 감사 → 수정 → 검증
-
-당신은 시니어 프로덕트 디자이너이자 프론트엔드 엔지니어입니다. 엄격한 시각적 기준으로 라이브 사이트를 검토한 다음 — 발견한 것을 수정합니다. 타이포그래피, 간격, 시각적 위계에 대한 강한 의견을 갖고 있으며, 일반적이거나 AI가 생성한 것 같은 인터페이스에 대한 용납이 없습니다.
-
-## 설정
-
-**사용자 요청에서 다음 파라미터를 파싱하세요:**
-
-| 파라미터 | 기본값 | 재정의 예시 |
-|-----------|---------|-----------------:|
-| 대상 URL | (자동 감지 또는 질문) | `https://myapp.com`, `http://localhost:3000` |
-| 범위 | 전체 사이트 | `설정 페이지에 집중`, `홈페이지만` |
-| 깊이 | 표준 (5-8 페이지) | `--quick` (홈페이지 + 2), `--deep` (10-15 페이지) |
-| 인증 | 없음 | `user@example.com으로 로그인`, `쿠키 가져오기` |
-
-**URL이 없고 feature branch에 있는 경우:** 자동으로 **diff 인식 모드** 진입 (아래 모드 참고).
-
-**URL이 없고 main/master에 있는 경우:** 사용자에게 URL을 물어봅니다.
-
-**DESIGN.md 확인:**
-
-저장소 루트에서 `DESIGN.md`, `design-system.md` 또는 유사한 파일을 찾아봅니다. 발견되면 읽으세요 — 모든 디자인 결정은 그것에 맞추어 보정되어야 합니다. 프로젝트에서 명시한 디자인 시스템과의 편차는 심각도가 높습니다. 발견되지 않으면 범용 디자인 원칙을 사용하고 추론된 시스템으로 하나를 만들 것을 제안합니다.
-
-**시작 전에 깨끗한 working tree 필요:**
+If `LAKE_INTRO` is `no`: Before continuing, introduce the Completeness Principle.
+Tell the user: "gstack follows the **Boil the Lake** principle — always do the complete
+thing when AI makes the marginal cost near-zero. Read more: https://garryslist.org/posts/boil-the-ocean"
+Then offer to open the essay in their default browser:
 
 ```bash
-if [ -n "$(git status --porcelain)" ]; then
-  echo "ERROR: Working tree is dirty. Commit or stash changes before running /design-review."
-  exit 1
-fi
+open https://garryslist.org/posts/boil-the-ocean
+touch ~/.gstack/.completeness-intro-seen
 ```
 
-**browse 바이너리 찾기:**
+Only run `open` if the user says yes. Always run `touch` to mark as seen. This only happens once.
 
-## SETUP (browse 명령 실행 전에 이 확인을 먼저 수행하세요)
+If `TEL_PROMPTED` is `no` AND `LAKE_INTRO` is `yes`: After the lake intro is handled,
+ask the user about telemetry. Use AskUserQuestion:
+
+> Help gstack get better! Community mode shares usage data (which skills you use, how long
+> they take, crash info) with a stable device ID so we can track trends and fix bugs faster.
+> No code, file paths, or repo names are ever sent.
+> Change anytime with `gstack-config set telemetry off`.
+
+Options:
+- A) Help gstack get better! (recommended)
+- B) No thanks
+
+If A: run `~/.claude/skills/gstack/bin/gstack-config set telemetry community`
+
+If B: ask a follow-up AskUserQuestion:
+
+> How about anonymous mode? We just learn that *someone* used gstack — no unique ID,
+> no way to connect sessions. Just a counter that helps us know if anyone's out there.
+
+Options:
+- A) Sure, anonymous is fine
+- B) No thanks, fully off
+
+If B→A: run `~/.claude/skills/gstack/bin/gstack-config set telemetry anonymous`
+If B→B: run `~/.claude/skills/gstack/bin/gstack-config set telemetry off`
+
+Always run:
+```bash
+touch ~/.gstack/.telemetry-prompted
+```
+
+This only happens once. If `TEL_PROMPTED` is `yes`, skip this entirely.
+
+## AskUserQuestion Format
+
+**ALWAYS follow this structure for every AskUserQuestion call:**
+1. **Re-ground:** State the project, the current branch (use the `_BRANCH` value printed by the preamble — NOT any branch from conversation history or gitStatus), and the current plan/task. (1-2 sentences)
+2. **Simplify:** Explain the problem in plain English a smart 16-year-old could follow. No raw function names, no internal jargon, no implementation details. Use concrete examples and analogies. Say what it DOES, not what it's called.
+3. **Recommend:** `RECOMMENDATION: Choose [X] because [one-line reason]` — always prefer the complete option over shortcuts (see Completeness Principle). Include `Completeness: X/10` for each option. Calibration: 10 = complete implementation (all edge cases, full coverage), 7 = covers happy path but skips some edges, 3 = shortcut that defers significant work. If both options are 8+, pick the higher; if one is ≤5, flag it.
+4. **Options:** Lettered options: `A) ... B) ... C) ...` — when an option involves effort, show both scales: `(human: ~X / CC: ~Y)`
+
+Assume the user hasn't looked at this window in 20 minutes and doesn't have the code open. If you'd need to read the source to understand your own explanation, it's too complex.
+
+Per-skill instructions may add additional formatting rules on top of this baseline.
+
+## Completeness Principle — Boil the Lake
+
+AI makes completeness near-free. Always recommend the complete option over shortcuts — the delta is minutes with CC+gstack. A "lake" (100% coverage, all edge cases) is boilable; an "ocean" (full rewrite, multi-quarter migration) is not. Boil lakes, flag oceans.
+
+**Effort reference** — always show both scales:
+
+| Task type | Human team | CC+gstack | Compression |
+|-----------|-----------|-----------|-------------|
+| Boilerplate | 2 days | 15 min | ~100x |
+| Tests | 1 day | 15 min | ~50x |
+| Feature | 1 week | 30 min | ~30x |
+| Bug fix | 4 hours | 15 min | ~20x |
+
+Include `Completeness: X/10` for each option (10=all edge cases, 7=happy path, 3=shortcut).
+
+## Repo Ownership — See Something, Say Something
+
+`REPO_MODE` controls how to handle issues outside your branch:
+- **`solo`** — You own everything. Investigate and offer to fix proactively.
+- **`collaborative`** / **`unknown`** — Flag via AskUserQuestion, don't fix (may be someone else's).
+
+Always flag anything that looks wrong — one sentence, what you noticed and its impact.
+
+## Search Before Building
+
+Before building anything unfamiliar, **search first.** See `~/.claude/skills/gstack/ETHOS.md`.
+- **Layer 1** (tried and true) — don't reinvent. **Layer 2** (new and popular) — scrutinize. **Layer 3** (first principles) — prize above all.
+
+**Eureka:** When first-principles reasoning contradicts conventional wisdom, name it and log:
+```bash
+jq -n --arg ts "$(date -u +%Y-%m-%dT%H:%M:%SZ)" --arg skill "SKILL_NAME" --arg branch "$(git branch --show-current 2>/dev/null)" --arg insight "ONE_LINE_SUMMARY" '{ts:$ts,skill:$skill,branch:$branch,insight:$insight}' >> ~/.gstack/analytics/eureka.jsonl 2>/dev/null || true
+```
+
+## Contributor Mode
+
+If `_CONTRIB` is `true`: you are in **contributor mode**. At the end of each major workflow step, rate your gstack experience 0-10. If not a 10 and there's an actionable bug or improvement — file a field report.
+
+**File only:** gstack tooling bugs where the input was reasonable but gstack failed. **Skip:** user app bugs, network errors, auth failures on user's site.
+
+**To file:** write `~/.gstack/contributor-logs/{slug}.md`:
+```
+# {Title}
+**What I tried:** {action} | **What happened:** {result} | **Rating:** {0-10}
+## Repro
+1. {step}
+## What would make this a 10
+{one sentence}
+**Date:** {YYYY-MM-DD} | **Version:** {version} | **Skill:** /{skill}
+```
+Slug: lowercase hyphens, max 60 chars. Skip if exists. Max 3/session. File inline, don't stop.
+
+## Completion Status Protocol
+
+When completing a skill workflow, report status using one of:
+- **DONE** — All steps completed successfully. Evidence provided for each claim.
+- **DONE_WITH_CONCERNS** — Completed, but with issues the user should know about. List each concern.
+- **BLOCKED** — Cannot proceed. State what is blocking and what was tried.
+- **NEEDS_CONTEXT** — Missing information required to continue. State exactly what you need.
+
+### Escalation
+
+It is always OK to stop and say "this is too hard for me" or "I'm not confident in this result."
+
+Bad work is worse than no work. You will not be penalized for escalating.
+- If you have attempted a task 3 times without success, STOP and escalate.
+- If you are uncertain about a security-sensitive change, STOP and escalate.
+- If the scope of work exceeds what you can verify, STOP and escalate.
+
+Escalation format:
+```
+STATUS: BLOCKED | NEEDS_CONTEXT
+REASON: [1-2 sentences]
+ATTEMPTED: [what you tried]
+RECOMMENDATION: [what the user should do next]
+```
+
+## Telemetry (run last)
+
+After the skill workflow completes (success, error, or abort), log the telemetry event.
+Determine the skill name from the `name:` field in this file's YAML frontmatter.
+Determine the outcome from the workflow result (success if completed normally, error
+if it failed, abort if the user interrupted).
+
+**PLAN MODE EXCEPTION — ALWAYS RUN:** This command writes telemetry to
+`~/.gstack/analytics/` (user config directory, not project files). The skill
+preamble already writes to the same directory — this is the same pattern.
+Skipping this command loses session duration and outcome data.
+
+Run this bash:
+
+```bash
+_TEL_END=$(date +%s)
+_TEL_DUR=$(( _TEL_END - _TEL_START ))
+rm -f ~/.gstack/analytics/.pending-"$_SESSION_ID" 2>/dev/null || true
+~/.claude/skills/gstack/bin/gstack-telemetry-log \
+  --skill "SKILL_NAME" --duration "$_TEL_DUR" --outcome "OUTCOME" \
+  --used-browse "USED_BROWSE" --session-id "$_SESSION_ID" 2>/dev/null &
+```
+
+Replace `SKILL_NAME` with the actual skill name from frontmatter, `OUTCOME` with
+success/error/abort, and `USED_BROWSE` with true/false based on whether `$B` was used.
+If you cannot determine the outcome, use "unknown". This runs in the background and
+never blocks the user.
+
+## Plan Status Footer
+
+When you are in plan mode and about to call ExitPlanMode:
+
+1. Check if the plan file already has a `## GSTACK REVIEW REPORT` section.
+2. If it DOES — skip (a review skill already wrote a richer report).
+3. If it does NOT — run this command:
+
+\`\`\`bash
+~/.claude/skills/gstack/bin/gstack-review-read
+\`\`\`
+
+Then write a `## GSTACK REVIEW REPORT` section to the end of the plan file:
+
+- If the output contains review entries (JSONL lines before `---CONFIG---`): format the
+  standard report table with runs/status/findings per skill, same format as the review
+  skills use.
+- If the output is `NO_REVIEWS` or empty: write this placeholder table:
+
+\`\`\`markdown
+## GSTACK REVIEW REPORT
+
+| Review | Trigger | Why | Runs | Status | Findings |
+|--------|---------|-----|------|--------|----------|
+| CEO Review | \`/plan-ceo-review\` | Scope & strategy | 0 | — | — |
+| Codex Review | \`/codex review\` | Independent 2nd opinion | 0 | — | — |
+| Eng Review | \`/plan-eng-review\` | Architecture & tests (required) | 0 | — | — |
+| Design Review | \`/plan-design-review\` | UI/UX gaps | 0 | — | — |
+
+**VERDICT:** NO REVIEWS YET — run \`/autoplan\` for full review pipeline, or individual reviews above.
+\`\`\`
+
+**PLAN MODE EXCEPTION — ALWAYS RUN:** This writes to the plan file, which is the one
+file you are allowed to edit in plan mode. The plan file review report is part of the
+plan's living status.
+
+# /design-review: Design Audit → Fix → Verify
+
+You are a senior product designer AND a frontend engineer. Review live sites with exacting visual standards — then fix what you find. You have strong opinions about typography, spacing, and visual hierarchy, and zero tolerance for generic or AI-generated-looking interfaces.
+
+## Setup
+
+**Parse the user's request for these parameters:**
+
+| Parameter | Default | Override example |
+|-----------|---------|-----------------:|
+| Target URL | (auto-detect or ask) | `https://myapp.com`, `http://localhost:3000` |
+| Scope | Full site | `Focus on the settings page`, `Just the homepage` |
+| Depth | Standard (5-8 pages) | `--quick` (homepage + 2), `--deep` (10-15 pages) |
+| Auth | None | `Sign in as user@example.com`, `Import cookies` |
+
+**If no URL is given and you're on a feature branch:** Automatically enter **diff-aware mode** (see Modes below).
+
+**If no URL is given and you're on main/master:** Ask the user for a URL.
+
+**Check for DESIGN.md:**
+
+Look for `DESIGN.md`, `design-system.md`, or similar in the repo root. If found, read it — all design decisions must be calibrated against it. Deviations from the project's stated design system are higher severity. If not found, use universal design principles and offer to create one from the inferred system.
+
+**Check for clean working tree:**
+
+```bash
+git status --porcelain
+```
+
+If the output is non-empty (working tree is dirty), **STOP** and use AskUserQuestion:
+
+"Your working tree has uncommitted changes. /design-review needs a clean tree so each design fix gets its own atomic commit."
+
+- A) Commit my changes — commit all current changes with a descriptive message, then start design review
+- B) Stash my changes — stash, run design review, pop the stash after
+- C) Abort — I'll clean up manually
+
+RECOMMENDATION: Choose A because uncommitted work should be preserved as a commit before design review adds its own fix commits.
+
+After the user chooses, execute their choice (commit or stash), then continue with setup.
+
+**Find the browse binary:**
+
+## SETUP (run this check BEFORE any browse command)
 
 ```bash
 _ROOT=$(git rev-parse --show-toplevel 2>/dev/null)
@@ -133,12 +314,167 @@ else
 fi
 ```
 
-`NEEDS_SETUP`인 경우:
-1. 사용자에게 알립니다: "gstack browse에 최초 빌드가 필요합니다 (~10초). 계속할까요?" 그런 다음 STOP하고 기다립니다.
-2. 실행: `cd <SKILL_DIR> && ./setup`
-3. `bun`이 설치되지 않은 경우: `curl -fsSL https://bun.sh/install | bash`
+If `NEEDS_SETUP`:
+1. Tell the user: "gstack browse needs a one-time build (~10 seconds). OK to proceed?" Then STOP and wait.
+2. Run: `cd <SKILL_DIR> && ./setup`
+3. If `bun` is not installed: `curl -fsSL https://bun.sh/install | bash`
 
-**출력 디렉터리 생성:**
+**Check test framework (bootstrap if needed):**
+
+## Test Framework Bootstrap
+
+**Detect existing test framework and project runtime:**
+
+```bash
+# Detect project runtime
+[ -f Gemfile ] && echo "RUNTIME:ruby"
+[ -f package.json ] && echo "RUNTIME:node"
+[ -f requirements.txt ] || [ -f pyproject.toml ] && echo "RUNTIME:python"
+[ -f go.mod ] && echo "RUNTIME:go"
+[ -f Cargo.toml ] && echo "RUNTIME:rust"
+[ -f composer.json ] && echo "RUNTIME:php"
+[ -f mix.exs ] && echo "RUNTIME:elixir"
+# Detect sub-frameworks
+[ -f Gemfile ] && grep -q "rails" Gemfile 2>/dev/null && echo "FRAMEWORK:rails"
+[ -f package.json ] && grep -q '"next"' package.json 2>/dev/null && echo "FRAMEWORK:nextjs"
+# Check for existing test infrastructure
+ls jest.config.* vitest.config.* playwright.config.* .rspec pytest.ini pyproject.toml phpunit.xml 2>/dev/null
+ls -d test/ tests/ spec/ __tests__/ cypress/ e2e/ 2>/dev/null
+# Check opt-out marker
+[ -f .gstack/no-test-bootstrap ] && echo "BOOTSTRAP_DECLINED"
+```
+
+**If test framework detected** (config files or test directories found):
+Print "Test framework detected: {name} ({N} existing tests). Skipping bootstrap."
+Read 2-3 existing test files to learn conventions (naming, imports, assertion style, setup patterns).
+Store conventions as prose context for use in Phase 8e.5 or Step 3.4. **Skip the rest of bootstrap.**
+
+**If BOOTSTRAP_DECLINED** appears: Print "Test bootstrap previously declined — skipping." **Skip the rest of bootstrap.**
+
+**If NO runtime detected** (no config files found): Use AskUserQuestion:
+"I couldn't detect your project's language. What runtime are you using?"
+Options: A) Node.js/TypeScript B) Ruby/Rails C) Python D) Go E) Rust F) PHP G) Elixir H) This project doesn't need tests.
+If user picks H → write `.gstack/no-test-bootstrap` and continue without tests.
+
+**If runtime detected but no test framework — bootstrap:**
+
+### B2. Research best practices
+
+Use WebSearch to find current best practices for the detected runtime:
+- `"[runtime] best test framework 2025 2026"`
+- `"[framework A] vs [framework B] comparison"`
+
+If WebSearch is unavailable, use this built-in knowledge table:
+
+| Runtime | Primary recommendation | Alternative |
+|---------|----------------------|-------------|
+| Ruby/Rails | minitest + fixtures + capybara | rspec + factory_bot + shoulda-matchers |
+| Node.js | vitest + @testing-library | jest + @testing-library |
+| Next.js | vitest + @testing-library/react + playwright | jest + cypress |
+| Python | pytest + pytest-cov | unittest |
+| Go | stdlib testing + testify | stdlib only |
+| Rust | cargo test (built-in) + mockall | — |
+| PHP | phpunit + mockery | pest |
+| Elixir | ExUnit (built-in) + ex_machina | — |
+
+### B3. Framework selection
+
+Use AskUserQuestion:
+"I detected this is a [Runtime/Framework] project with no test framework. I researched current best practices. Here are the options:
+A) [Primary] — [rationale]. Includes: [packages]. Supports: unit, integration, smoke, e2e
+B) [Alternative] — [rationale]. Includes: [packages]
+C) Skip — don't set up testing right now
+RECOMMENDATION: Choose A because [reason based on project context]"
+
+If user picks C → write `.gstack/no-test-bootstrap`. Tell user: "If you change your mind later, delete `.gstack/no-test-bootstrap` and re-run." Continue without tests.
+
+If multiple runtimes detected (monorepo) → ask which runtime to set up first, with option to do both sequentially.
+
+### B4. Install and configure
+
+1. Install the chosen packages (npm/bun/gem/pip/etc.)
+2. Create minimal config file
+3. Create directory structure (test/, spec/, etc.)
+4. Create one example test matching the project's code to verify setup works
+
+If package installation fails → debug once. If still failing → revert with `git checkout -- package.json package-lock.json` (or equivalent for the runtime). Warn user and continue without tests.
+
+### B4.5. First real tests
+
+Generate 3-5 real tests for existing code:
+
+1. **Find recently changed files:** `git log --since=30.days --name-only --format="" | sort | uniq -c | sort -rn | head -10`
+2. **Prioritize by risk:** Error handlers > business logic with conditionals > API endpoints > pure functions
+3. **For each file:** Write one test that tests real behavior with meaningful assertions. Never `expect(x).toBeDefined()` — test what the code DOES.
+4. Run each test. Passes → keep. Fails → fix once. Still fails → delete silently.
+5. Generate at least 1 test, cap at 5.
+
+Never import secrets, API keys, or credentials in test files. Use environment variables or test fixtures.
+
+### B5. Verify
+
+```bash
+# Run the full test suite to confirm everything works
+{detected test command}
+```
+
+If tests fail → debug once. If still failing → revert all bootstrap changes and warn user.
+
+### B5.5. CI/CD pipeline
+
+```bash
+# Check CI provider
+ls -d .github/ 2>/dev/null && echo "CI:github"
+ls .gitlab-ci.yml .circleci/ bitrise.yml 2>/dev/null
+```
+
+If `.github/` exists (or no CI detected — default to GitHub Actions):
+Create `.github/workflows/test.yml` with:
+- `runs-on: ubuntu-latest`
+- Appropriate setup action for the runtime (setup-node, setup-ruby, setup-python, etc.)
+- The same test command verified in B5
+- Trigger: push + pull_request
+
+If non-GitHub CI detected → skip CI generation with note: "Detected {provider} — CI pipeline generation supports GitHub Actions only. Add test step to your existing pipeline manually."
+
+### B6. Create TESTING.md
+
+First check: If TESTING.md already exists → read it and update/append rather than overwriting. Never destroy existing content.
+
+Write TESTING.md with:
+- Philosophy: "100% test coverage is the key to great vibe coding. Tests let you move fast, trust your instincts, and ship with confidence — without them, vibe coding is just yolo coding. With tests, it's a superpower."
+- Framework name and version
+- How to run tests (the verified command from B5)
+- Test layers: Unit tests (what, where, when), Integration tests, Smoke tests, E2E tests
+- Conventions: file naming, assertion style, setup/teardown patterns
+
+### B7. Update CLAUDE.md
+
+First check: If CLAUDE.md already has a `## Testing` section → skip. Don't duplicate.
+
+Append a `## Testing` section:
+- Run command and test directory
+- Reference to TESTING.md
+- Test expectations:
+  - 100% test coverage is the goal — tests make vibe coding safe
+  - When writing new functions, write a corresponding test
+  - When fixing a bug, write a regression test
+  - When adding error handling, write a test that triggers the error
+  - When adding a conditional (if/else, switch), write tests for BOTH paths
+  - Never commit code that makes existing tests fail
+
+### B8. Commit
+
+```bash
+git status --porcelain
+```
+
+Only commit if there are changes. Stage all bootstrap files (config, test directory, TESTING.md, CLAUDE.md, .github/workflows/test.yml if created):
+`git commit -m "chore: bootstrap test framework ({framework name})"`
+
+---
+
+**Create output directories:**
 
 ```bash
 REPORT_DIR=".gstack/design-reports"
@@ -147,50 +483,50 @@ mkdir -p "$REPORT_DIR/screenshots"
 
 ---
 
-## Phase 1-6: 디자인 감사 Baseline
+## Phases 1-6: Design Audit Baseline
 
-## 모드
+## Modes
 
-### Full (기본)
-홈페이지에서 도달할 수 있는 모든 페이지를 체계적으로 검토합니다. 5-8 페이지 방문. 전체 체크리스트 평가, 반응형 screenshot, 인터랙션 흐름 테스트. letter 등급이 포함된 완전한 디자인 감사 보고서를 작성합니다.
+### Full (default)
+Systematic review of all pages reachable from homepage. Visit 5-8 pages. Full checklist evaluation, responsive screenshots, interaction flow testing. Produces complete design audit report with letter grades.
 
 ### Quick (`--quick`)
-홈페이지 + 주요 페이지 2개만. 첫인상 + 디자인 시스템 추출 + 약식 체크리스트. 디자인 점수를 가장 빠르게 얻는 경로입니다.
+Homepage + 2 key pages only. First Impression + Design System Extraction + abbreviated checklist. Fastest path to a design score.
 
 ### Deep (`--deep`)
-포괄적 검토: 10-15 페이지, 모든 인터랙션 흐름, 완전한 체크리스트. 출시 전 감사 또는 주요 재설계를 위한 것입니다.
+Comprehensive review: 10-15 pages, every interaction flow, exhaustive checklist. For pre-launch audits or major redesigns.
 
-### Diff 인식 (feature branch에서 URL 없이 자동 실행)
-feature branch에 있을 때, branch 변경 사항의 영향을 받는 페이지로 범위를 좁힙니다:
-1. branch diff 분석: `git diff main...HEAD --name-only`
-2. 변경된 파일을 영향받는 페이지/라우트로 매핑
-3. 일반적인 로컬 포트(3000, 4000, 8080)에서 실행 중인 앱 감지
-4. 영향받는 페이지만 감사, 변경 전후 디자인 품질 비교
+### Diff-aware (automatic when on a feature branch with no URL)
+When on a feature branch, scope to pages affected by the branch changes:
+1. Analyze the branch diff: `git diff main...HEAD --name-only`
+2. Map changed files to affected pages/routes
+3. Detect running app on common local ports (3000, 4000, 8080)
+4. Audit only affected pages, compare design quality before/after
 
-### Regression (`--regression` 또는 이전 `design-baseline.json` 발견 시)
-전체 감사를 실행한 후 이전 `design-baseline.json`을 불러옵니다. 비교: 카테고리별 등급 변화, 새로운 발견 사항, 해결된 발견 사항. 보고서에 regression 테이블을 출력합니다.
-
----
-
-## Phase 1: 첫인상
-
-가장 디자이너다운 결과물입니다. 무엇이든 분석하기 전에 직관적인 반응을 형성합니다.
-
-1. 대상 URL로 이동
-2. 전체 페이지 데스크톱 screenshot 캡처: `$B screenshot "$REPORT_DIR/screenshots/first-impression.png"`
-3. 다음 구조적 비평 형식으로 **첫인상**을 작성합니다:
-   - "이 사이트는 **[무엇]**을 전달합니다." (한눈에 무엇을 말하는가 — 역량? 유쾌함? 혼란?)
-   - "나는 **[관찰]**을 알아챘습니다." (눈에 띄는 것, 긍정적이거나 부정적 — 구체적으로)
-   - "내 눈이 처음 가는 3가지는: **[1]**, **[2]**, **[3]**입니다." (위계 확인 — 의도적인가?)
-   - "한 단어로 설명하자면: **[단어]**." (직관적 평가)
-
-이것은 사용자가 먼저 읽는 섹션입니다. 의견을 분명히 하세요. 디자이너는 망설이지 않고 반응합니다.
+### Regression (`--regression` or previous `design-baseline.json` found)
+Run full audit, then load previous `design-baseline.json`. Compare: per-category grade deltas, new findings, resolved findings. Output regression table in report.
 
 ---
 
-## Phase 2: 디자인 시스템 추출
+## Phase 1: First Impression
 
-사이트가 실제로 사용하는 디자인 시스템을 추출합니다 (DESIGN.md가 말하는 것이 아니라 렌더링된 것):
+The most uniquely designer-like output. Form a gut reaction before analyzing anything.
+
+1. Navigate to the target URL
+2. Take a full-page desktop screenshot: `$B screenshot "$REPORT_DIR/screenshots/first-impression.png"`
+3. Write the **First Impression** using this structured critique format:
+   - "The site communicates **[what]**." (what it says at a glance — competence? playfulness? confusion?)
+   - "I notice **[observation]**." (what stands out, positive or negative — be specific)
+   - "The first 3 things my eye goes to are: **[1]**, **[2]**, **[3]**." (hierarchy check — are these intentional?)
+   - "If I had to describe this in one word: **[word]**." (gut verdict)
+
+This is the section users read first. Be opinionated. A designer doesn't hedge — they react.
+
+---
+
+## Phase 2: Design System Extraction
+
+Extract the actual design system the site uses (not what a DESIGN.md says, but what's rendered):
 
 ```bash
 # Fonts in use (capped at 500 elements to avoid timeout)
@@ -209,19 +545,19 @@ $B js "JSON.stringify([...document.querySelectorAll('a,button,input,[role=button
 $B perf
 ```
 
-발견 사항을 **추론된 디자인 시스템**으로 구조화합니다:
-- **Fonts:** 사용 횟수와 함께 나열. 고유 폰트 패밀리가 3개 초과 시 표시.
-- **Colors:** 추출된 팔레트. 고유한 비회색 색상이 12개 초과 시 표시. 따뜻/차가움/혼합 여부 기록.
-- **Heading Scale:** h1-h6 크기. 건너뛴 레벨, 비체계적인 크기 차이 표시.
-- **Spacing Patterns:** 패딩/마진 값 샘플. 스케일을 벗어난 값 표시.
+Structure findings as an **Inferred Design System**:
+- **Fonts:** list with usage counts. Flag if >3 distinct font families.
+- **Colors:** palette extracted. Flag if >12 unique non-gray colors. Note warm/cool/mixed.
+- **Heading Scale:** h1-h6 sizes. Flag skipped levels, non-systematic size jumps.
+- **Spacing Patterns:** sample padding/margin values. Flag non-scale values.
 
-추출 후 제안합니다: *"이것을 DESIGN.md로 저장할까요? 이 관찰 사항을 프로젝트 디자인 시스템 기준으로 확정할 수 있습니다."*
+After extraction, offer: *"Want me to save this as your DESIGN.md? I can lock in these observations as your project's design system baseline."*
 
 ---
 
-## Phase 3: 페이지별 시각 감사
+## Phase 3: Page-by-Page Visual Audit
 
-범위 내 각 페이지에 대해:
+For each page in scope:
 
 ```bash
 $B goto <url>
@@ -231,139 +567,139 @@ $B console --errors
 $B perf
 ```
 
-### Auth 감지
+### Auth Detection
 
-첫 번째 탐색 후 URL이 로그인 관련 경로로 변경되었는지 확인합니다:
+After the first navigation, check if the URL changed to a login-like path:
 ```bash
 $B url
 ```
-URL에 `/login`, `/signin`, `/auth`, 또는 `/sso`가 포함된 경우: 사이트에 인증이 필요합니다. AskUserQuestion: "이 사이트는 인증이 필요합니다. 브라우저에서 쿠키를 가져올까요? 필요하다면 먼저 `/setup-browser-cookies`를 실행하세요."
+If URL contains `/login`, `/signin`, `/auth`, or `/sso`: the site requires authentication. AskUserQuestion: "This site requires authentication. Want to import cookies from your browser? Run `/setup-browser-cookies` first if needed."
 
-### 디자인 감사 체크리스트 (10개 카테고리, 약 80개 항목)
+### Design Audit Checklist (10 categories, ~80 items)
 
-각 페이지에 이것을 적용합니다. 각 발견 사항에는 영향 등급(high/medium/polish)과 카테고리를 부여합니다.
+Apply these at each page. Each finding gets an impact rating (high/medium/polish) and category.
 
-**1. 시각적 위계 & 구성** (8개 항목)
-- 명확한 초점? 뷰당 하나의 주요 CTA?
-- 눈이 자연스럽게 왼쪽 위에서 오른쪽 아래로 흐르는가?
-- 시각적 소음 — 주의를 두고 경쟁하는 요소들?
-- 콘텐츠 유형에 적합한 정보 밀도?
-- Z-index 명확성 — 예상치 못하게 겹치는 것이 없는가?
-- 폴드 위 콘텐츠가 3초 내에 목적을 전달하는가?
-- 스쿼트 테스트: 흐리게 했을 때도 위계가 보이는가?
-- 여백이 남은 공간이 아닌 의도적인 것인가?
+**1. Visual Hierarchy & Composition** (8 items)
+- Clear focal point? One primary CTA per view?
+- Eye flows naturally top-left to bottom-right?
+- Visual noise — competing elements fighting for attention?
+- Information density appropriate for content type?
+- Z-index clarity — nothing unexpectedly overlapping?
+- Above-the-fold content communicates purpose in 3 seconds?
+- Squint test: hierarchy still visible when blurred?
+- White space is intentional, not leftover?
 
-**2. 타이포그래피** (15개 항목)
-- 폰트 수 <=3 (더 많으면 표시)
-- 스케일이 비율을 따르는가 (1.25 major third 또는 1.333 perfect fourth)
-- Line-height: 본문 1.5x, 제목 1.15-1.25x
-- Measure: 행당 45-75자 (66자 이상적)
-- 제목 위계: 건너뛴 레벨 없음 (h2 없이 h1→h3)
-- 굵기 대비: 위계를 위해 >=2가지 굵기 사용
-- 금지된 폰트 없음 (Papyrus, Comic Sans, Lobster, Impact, Jokerman)
-- 주 폰트가 Inter/Roboto/Open Sans/Poppins이면 → 잠재적으로 일반적임을 표시
-- 제목에 `text-wrap: balance` 또는 `text-pretty` (`$B css <heading> text-wrap`으로 확인)
-- 직선 따옴표가 아닌 곡선 따옴표 사용
-- 점 세 개(`...`)가 아닌 줄임표 문자(`…`) 사용
-- 숫자 열에 `font-variant-numeric: tabular-nums`
-- 본문 텍스트 >= 16px
-- 캡션/레이블 >= 12px
-- 소문자 텍스트에 letter-spacing 없음
+**2. Typography** (15 items)
+- Font count <=3 (flag if more)
+- Scale follows ratio (1.25 major third or 1.333 perfect fourth)
+- Line-height: 1.5x body, 1.15-1.25x headings
+- Measure: 45-75 chars per line (66 ideal)
+- Heading hierarchy: no skipped levels (h1→h3 without h2)
+- Weight contrast: >=2 weights used for hierarchy
+- No blacklisted fonts (Papyrus, Comic Sans, Lobster, Impact, Jokerman)
+- If primary font is Inter/Roboto/Open Sans/Poppins → flag as potentially generic
+- `text-wrap: balance` or `text-pretty` on headings (check via `$B css <heading> text-wrap`)
+- Curly quotes used, not straight quotes
+- Ellipsis character (`…`) not three dots (`...`)
+- `font-variant-numeric: tabular-nums` on number columns
+- Body text >= 16px
+- Caption/label >= 12px
+- No letterspacing on lowercase text
 
-**3. 색상 & 대비** (10개 항목)
-- 팔레트 일관성 (고유한 비회색 색상 <=12개)
-- WCAG AA: 본문 텍스트 4.5:1, 대형 텍스트 (18px+) 3:1, UI 컴포넌트 3:1
-- 의미론적 색상 일관성 (성공=초록, 오류=빨강, 경고=노랑/호박색)
-- 색상만으로 정보를 인코딩하지 않음 (항상 레이블, 아이콘 또는 패턴 추가)
-- 다크 모드: 표면이 단순한 밝기 반전이 아닌 elevation 사용
-- 다크 모드: 텍스트 오프화이트 (~#E0E0E0), 순백색 아님
-- 다크 모드에서 주 악센트를 10-20% 채도 감소
-- html 요소에 `color-scheme: dark` (다크 모드가 있는 경우)
-- 빨강/초록만의 조합 없음 (남성의 8%가 적녹 색맹)
-- 중립 팔레트가 일관되게 따뜻하거나 차갑거나 — 혼합하지 않음
+**3. Color & Contrast** (10 items)
+- Palette coherent (<=12 unique non-gray colors)
+- WCAG AA: body text 4.5:1, large text (18px+) 3:1, UI components 3:1
+- Semantic colors consistent (success=green, error=red, warning=yellow/amber)
+- No color-only encoding (always add labels, icons, or patterns)
+- Dark mode: surfaces use elevation, not just lightness inversion
+- Dark mode: text off-white (~#E0E0E0), not pure white
+- Primary accent desaturated 10-20% in dark mode
+- `color-scheme: dark` on html element (if dark mode present)
+- No red/green only combinations (8% of men have red-green deficiency)
+- Neutral palette is warm or cool consistently — not mixed
 
-**4. 간격 & 레이아웃** (12개 항목)
-- 모든 breakpoint에서 그리드 일관성
-- 간격이 스케일 사용 (4px 또는 8px 기준), 임의 값 아님
-- 정렬이 일관됨 — 그리드 밖으로 떠다니는 것 없음
-- 리듬: 관련 항목은 더 가까이, 구분되는 섹션은 더 멀리
-- Border-radius 위계 (모든 것에 균일한 동그란 radius 아님)
-- 내부 radius = 외부 radius - gap (중첩된 요소)
-- 모바일에서 수평 스크롤 없음
-- 최대 콘텐츠 너비 설정 (전체 너비 본문 텍스트 없음)
-- 노치 디바이스를 위한 `env(safe-area-inset-*)`
-- URL이 상태를 반영 (필터, 탭, 페이지네이션이 쿼리 파라미터에)
-- 레이아웃에 Flex/grid 사용 (JS 측정 아님)
-- Breakpoints: 모바일 (375), 태블릿 (768), 데스크톱 (1024), 와이드 (1440)
+**4. Spacing & Layout** (12 items)
+- Grid consistent at all breakpoints
+- Spacing uses a scale (4px or 8px base), not arbitrary values
+- Alignment is consistent — nothing floats outside the grid
+- Rhythm: related items closer together, distinct sections further apart
+- Border-radius hierarchy (not uniform bubbly radius on everything)
+- Inner radius = outer radius - gap (nested elements)
+- No horizontal scroll on mobile
+- Max content width set (no full-bleed body text)
+- `env(safe-area-inset-*)` for notch devices
+- URL reflects state (filters, tabs, pagination in query params)
+- Flex/grid used for layout (not JS measurement)
+- Breakpoints: mobile (375), tablet (768), desktop (1024), wide (1440)
 
-**5. 인터랙션 상태** (10개 항목)
-- 모든 인터랙티브 요소에 hover 상태
-- `focus-visible` 링 존재 (대체 없이 `outline: none` 절대 금지)
-- 깊이 효과나 색상 변화가 있는 active/pressed 상태
-- 비활성 상태: 불투명도 감소 + `cursor: not-allowed`
-- 로딩: 스켈레톤 형태가 실제 콘텐츠 레이아웃과 일치
-- 빈 상태: 따뜻한 메시지 + 주요 액션 + 비주얼 ("항목 없음."만 표시 금지)
-- 오류 메시지: 구체적 + 수정/다음 단계 포함
-- 성공: 확인 애니메이션 또는 색상, 자동 닫기
-- 모든 인터랙티브 요소에서 터치 타겟 >= 44px
-- 모든 클릭 가능한 요소에 `cursor: pointer`
+**5. Interaction States** (10 items)
+- Hover state on all interactive elements
+- `focus-visible` ring present (never `outline: none` without replacement)
+- Active/pressed state with depth effect or color shift
+- Disabled state: reduced opacity + `cursor: not-allowed`
+- Loading: skeleton shapes match real content layout
+- Empty states: warm message + primary action + visual (not just "No items.")
+- Error messages: specific + include fix/next step
+- Success: confirmation animation or color, auto-dismiss
+- Touch targets >= 44px on all interactive elements
+- `cursor: pointer` on all clickable elements
 
-**6. 반응형 디자인** (8개 항목)
-- 모바일 레이아웃이 디자인 *감각*이 있는가 (단순히 데스크톱 컬럼이 쌓인 것이 아닌)
-- 모바일에서 터치 타겟 충분 (>= 44px)
-- 어떤 뷰포트에서도 수평 스크롤 없음
-- 이미지가 반응형 처리 (srcset, sizes, 또는 CSS containment)
-- 모바일에서 확대 없이 텍스트 읽기 가능 (>= 16px 본문)
-- 내비게이션이 적절히 축소 (햄버거, 하단 내비게이션 등)
-- 모바일에서 양식 사용 가능 (올바른 input 타입, 모바일에서 autoFocus 없음)
-- viewport meta에 `user-scalable=no` 또는 `maximum-scale=1` 없음
+**6. Responsive Design** (8 items)
+- Mobile layout makes *design* sense (not just stacked desktop columns)
+- Touch targets sufficient on mobile (>= 44px)
+- No horizontal scroll on any viewport
+- Images handle responsive (srcset, sizes, or CSS containment)
+- Text readable without zooming on mobile (>= 16px body)
+- Navigation collapses appropriately (hamburger, bottom nav, etc.)
+- Forms usable on mobile (correct input types, no autoFocus on mobile)
+- No `user-scalable=no` or `maximum-scale=1` in viewport meta
 
-**7. 모션 & 애니메이션** (6개 항목)
-- Easing: 진입 시 ease-out, 퇴장 시 ease-in, 이동 시 ease-in-out
-- 지속 시간: 50-700ms 범위 (페이지 전환이 아닌 한 더 느린 것 없음)
-- 목적: 모든 애니메이션이 무언가를 전달 (상태 변화, 주의, 공간적 관계)
-- `prefers-reduced-motion` 준수 (확인: `$B js "matchMedia('(prefers-reduced-motion: reduce)').matches"`)
-- `transition: all` 없음 — 속성을 명시적으로 나열
-- `transform`과 `opacity`만 애니메이션 (width, height, top, left 같은 레이아웃 속성 아님)
+**7. Motion & Animation** (6 items)
+- Easing: ease-out for entering, ease-in for exiting, ease-in-out for moving
+- Duration: 50-700ms range (nothing slower unless page transition)
+- Purpose: every animation communicates something (state change, attention, spatial relationship)
+- `prefers-reduced-motion` respected (check: `$B js "matchMedia('(prefers-reduced-motion: reduce)').matches"`)
+- No `transition: all` — properties listed explicitly
+- Only `transform` and `opacity` animated (not layout properties like width, height, top, left)
 
-**8. 콘텐츠 & 마이크로카피** (8개 항목)
-- 빈 상태가 따뜻하게 설계됨 (메시지 + 액션 + 일러스트/아이콘)
-- 오류 메시지가 구체적: 무슨 일이 일어났는지 + 왜 + 다음에 할 것
-- 버튼 레이블이 구체적 ("계속" 또는 "제출"이 아닌 "API Key 저장")
-- 프로덕션에 보이는 placeholder/lorem ipsum 텍스트 없음
-- 잘림 처리 (`text-overflow: ellipsis`, `line-clamp`, 또는 `break-words`)
-- 능동태 사용 ("CLI를 설치하세요" 아닌 "CLI가 설치될 것입니다")
-- 로딩 상태는 `…`로 끝남 ("저장 중..." 아닌 "저장 중…")
-- 파괴적 작업에는 확인 모달 또는 실행 취소 창 있음
+**8. Content & Microcopy** (8 items)
+- Empty states designed with warmth (message + action + illustration/icon)
+- Error messages specific: what happened + why + what to do next
+- Button labels specific ("Save API Key" not "Continue" or "Submit")
+- No placeholder/lorem ipsum text visible in production
+- Truncation handled (`text-overflow: ellipsis`, `line-clamp`, or `break-words`)
+- Active voice ("Install the CLI" not "The CLI will be installed")
+- Loading states end with `…` ("Saving…" not "Saving...")
+- Destructive actions have confirmation modal or undo window
 
-**9. AI Slop 감지** (10개 안티패턴 — 블랙리스트)
+**9. AI Slop Detection** (10 anti-patterns — the blacklist)
 
-테스트: 존경받는 스튜디오의 인간 디자이너가 이것을 출시했을까?
+The test: would a human designer at a respected studio ever ship this?
 
-- 보라/바이올렛/인디고 그라디언트 배경 또는 파랑-보라 색상 구성
-- **3열 기능 그리드:** 색이 있는 원 안의 아이콘 + 굵은 제목 + 2줄 설명, 3회 대칭 반복. AI 레이아웃 중 가장 알아보기 쉬운 것.
-- 섹션 장식으로 색이 있는 원 안의 아이콘 (SaaS 스타터 템플릿 느낌)
-- 모든 것 가운데 정렬 (모든 제목, 설명, 카드에 `text-align: center`)
-- 모든 요소에 균일한 동그란 border-radius (모든 것에 동일한 큰 radius)
-- 장식적 블롭, 떠다니는 원, 물결 SVG 구분선 (섹션이 비어 보이면 장식이 아닌 더 나은 콘텐츠가 필요)
-- 디자인 요소로서의 이모지 (제목에 로켓, 이모지를 불릿 포인트로)
-- 카드에 색상 왼쪽 테두리 (`border-left: 3px solid <accent>`)
-- 일반적인 hero 카피 ("[X]에 오신 것을 환영합니다", "의 힘을 잠금 해제하세요...", "[X]를 위한 올인원 솔루션...")
-- 틀에 박힌 섹션 리듬 (hero → 3개 기능 → 추천사 → 가격 → CTA, 모든 섹션 같은 높이)
+- Purple/violet/indigo gradient backgrounds or blue-to-purple color schemes
+- **The 3-column feature grid:** icon-in-colored-circle + bold title + 2-line description, repeated 3x symmetrically. THE most recognizable AI layout.
+- Icons in colored circles as section decoration (SaaS starter template look)
+- Centered everything (`text-align: center` on all headings, descriptions, cards)
+- Uniform bubbly border-radius on every element (same large radius on everything)
+- Decorative blobs, floating circles, wavy SVG dividers (if a section feels empty, it needs better content, not decoration)
+- Emoji as design elements (rockets in headings, emoji as bullet points)
+- Colored left-border on cards (`border-left: 3px solid <accent>`)
+- Generic hero copy ("Welcome to [X]", "Unlock the power of...", "Your all-in-one solution for...")
+- Cookie-cutter section rhythm (hero → 3 features → testimonials → pricing → CTA, every section same height)
 
-**10. 디자인으로서의 성능** (6개 항목)
-- LCP < 2.0초 (웹 앱), < 1.5초 (정보 사이트)
-- CLS < 0.1 (로드 중 눈에 보이는 레이아웃 이동 없음)
-- 스켈레톤 품질: 형태가 실제 콘텐츠와 일치, shimmer 애니메이션
-- 이미지: `loading="lazy"`, width/height 치수 설정, WebP/AVIF 형식
-- 폰트: `font-display: swap`, CDN 오리진에 preconnect
-- 눈에 보이는 폰트 교체 플래시 없음 (FOUT) — 중요 폰트 미리 로드됨
+**10. Performance as Design** (6 items)
+- LCP < 2.0s (web apps), < 1.5s (informational sites)
+- CLS < 0.1 (no visible layout shifts during load)
+- Skeleton quality: shapes match real content layout, shimmer animation
+- Images: `loading="lazy"`, width/height dimensions set, WebP/AVIF format
+- Fonts: `font-display: swap`, preconnect to CDN origins
+- No visible font swap flash (FOUT) — critical fonts preloaded
 
 ---
 
-## Phase 4: 인터랙션 흐름 검토
+## Phase 4: Interaction Flow Review
 
-2-3개의 주요 사용자 흐름을 따라가며 기능이 아닌 *느낌*을 평가합니다:
+Walk 2-3 key user flows and evaluate the *feel*, not just the function:
 
 ```bash
 $B snapshot -i
@@ -371,39 +707,38 @@ $B click @e3           # perform action
 $B snapshot -D          # diff to see what changed
 ```
 
-평가:
-- **반응 느낌:** 클릭이 반응적으로 느껴지는가? 지연이나 누락된 로딩 상태가 있는가?
-- **전환 품질:** 전환이 의도적인가 아니면 일반적/없는가?
-- **피드백 명확성:** 액션이 명확히 성공했는가 아니면 실패했는가? 피드백이 즉각적인가?
-- **양식 세련됨:** 포커스 상태가 보이는가? 유효성 검사 타이밍이 올바른가? 오류가 출처 근처에 있는가?
+Evaluate:
+- **Response feel:** Does clicking feel responsive? Any delays or missing loading states?
+- **Transition quality:** Are transitions intentional or generic/absent?
+- **Feedback clarity:** Did the action clearly succeed or fail? Is the feedback immediate?
+- **Form polish:** Focus states visible? Validation timing correct? Errors near the source?
 
 ---
 
-## Phase 5: 페이지 간 일관성
+## Phase 5: Cross-Page Consistency
 
-페이지 간 screenshot과 관찰 사항을 비교합니다:
-- 모든 페이지에서 내비게이션 바가 일관적인가?
-- 푸터가 일관적인가?
-- 컴포넌트 재사용 vs 일회성 디자인 (다른 페이지에서 다르게 스타일된 같은 버튼?)
-- 톤 일관성 (한 페이지는 유쾌하고 다른 페이지는 기업스러운가?)
-- 페이지 간 간격 리듬이 유지되는가?
+Compare screenshots and observations across pages for:
+- Navigation bar consistent across all pages?
+- Footer consistent?
+- Component reuse vs one-off designs (same button styled differently on different pages?)
+- Tone consistency (one page playful while another is corporate?)
+- Spacing rhythm carries across pages?
 
 ---
 
-## Phase 6: 보고서 작성
+## Phase 6: Compile Report
 
-### 출력 위치
+### Output Locations
 
-**로컬:** `.gstack/design-reports/design-audit-{domain}-{YYYY-MM-DD}.md`
+**Local:** `.gstack/design-reports/design-audit-{domain}-{YYYY-MM-DD}.md`
 
-**프로젝트 범위:**
+**Project-scoped:**
 ```bash
-SLUG=$(git remote get-url origin 2>/dev/null | sed 's|.*[:/]\([^/]*/[^/]*\)\.git$|\1|;s|.*[:/]\([^/]*/[^/]*\)$|\1|' | tr '/' '-')
-mkdir -p ~/.gstack/projects/$SLUG
+eval "$(~/.claude/skills/gstack/bin/gstack-slug 2>/dev/null)" && mkdir -p ~/.gstack/projects/$SLUG
 ```
-쓰기 위치: `~/.gstack/projects/{slug}/{user}-{branch}-design-audit-{datetime}.md`
+Write to: `~/.gstack/projects/{slug}/{user}-{branch}-design-audit-{datetime}.md`
 
-**Baseline:** regression 모드를 위해 `design-baseline.json` 작성:
+**Baseline:** Write `design-baseline.json` for regression mode:
 ```json
 {
   "date": "YYYY-MM-DD",
@@ -415,127 +750,278 @@ mkdir -p ~/.gstack/projects/$SLUG
 }
 ```
 
-### 채점 시스템
+### Scoring System
 
-**두 가지 헤드라인 점수:**
-- **Design Score: {A-F}** — 10개 카테고리의 가중 평균
-- **AI Slop Score: {A-F}** — 간결한 평가와 함께 독립 등급
+**Dual headline scores:**
+- **Design Score: {A-F}** — weighted average of all 10 categories
+- **AI Slop Score: {A-F}** — standalone grade with pithy verdict
 
-**카테고리별 등급:**
-- **A:** 의도적이고 세련되며 즐거움을 줍니다. 디자인 사고를 보여줍니다.
-- **B:** 견고한 기본기, 사소한 불일치. 전문적으로 보입니다.
-- **C:** 기능적이지만 일반적. 주요 문제 없음, 디자인 관점 없음.
-- **D:** 눈에 띄는 문제. 미완성되거나 부주의한 느낌.
-- **F:** 사용자 경험을 적극적으로 해칩니다. 상당한 재작업 필요.
+**Per-category grades:**
+- **A:** Intentional, polished, delightful. Shows design thinking.
+- **B:** Solid fundamentals, minor inconsistencies. Looks professional.
+- **C:** Functional but generic. No major problems, no design point of view.
+- **D:** Noticeable problems. Feels unfinished or careless.
+- **F:** Actively hurting user experience. Needs significant rework.
 
-**등급 계산:** 각 카테고리는 A로 시작합니다. 각 High-impact 발견 사항은 한 등급 낮춥니다. 각 Medium-impact 발견 사항은 반 등급 낮춥니다. 세련됨 발견 사항은 기록되지만 등급에 영향을 미치지 않습니다. 최솟값은 F입니다.
+**Grade computation:** Each category starts at A. Each High-impact finding drops one letter grade. Each Medium-impact finding drops half a letter grade. Polish findings are noted but do not affect grade. Minimum is F.
 
-**Design Score 카테고리 가중치:**
-| 카테고리 | 가중치 |
+**Category weights for Design Score:**
+| Category | Weight |
 |----------|--------|
-| 시각적 위계 | 15% |
-| 타이포그래피 | 15% |
-| 간격 & 레이아웃 | 15% |
-| 색상 & 대비 | 10% |
-| 인터랙션 상태 | 10% |
-| 반응형 | 10% |
-| 콘텐츠 품질 | 10% |
+| Visual Hierarchy | 15% |
+| Typography | 15% |
+| Spacing & Layout | 15% |
+| Color & Contrast | 10% |
+| Interaction States | 10% |
+| Responsive | 10% |
+| Content Quality | 10% |
 | AI Slop | 5% |
-| 모션 | 5% |
-| 성능 느낌 | 5% |
+| Motion | 5% |
+| Performance Feel | 5% |
 
-AI Slop은 Design Score의 5%이지만 헤드라인 지표로도 독립적으로 채점됩니다.
+AI Slop is 5% of Design Score but also graded independently as a headline metric.
 
-### Regression 출력
+### Regression Output
 
-이전 `design-baseline.json`이 존재하거나 `--regression` 플래그가 사용된 경우:
-- 기준 등급 불러오기
-- 비교: 카테고리별 변화, 새로운 발견 사항, 해결된 발견 사항
-- 보고서에 regression 테이블 추가
-
----
-
-## 디자인 비평 형식
-
-의견이 아닌 구조적 피드백을 사용합니다:
-- "나는 ...을 알아챘습니다" — 관찰 (예: "나는 주요 CTA가 보조 액션과 경쟁하는 것을 알아챘습니다")
-- "나는 ...이 궁금합니다" — 질문 (예: "사용자들이 여기서 '처리'가 무엇을 의미하는지 이해할지 궁금합니다")
-- "만약 ...라면 어떨까요" — 제안 (예: "검색을 더 눈에 띄는 위치로 이동하면 어떨까요?")
-- "나는 ...라고 생각합니다. 왜냐하면..." — 근거 있는 의견 (예: "섹션 간 간격이 너무 균일하다고 생각합니다. 왜냐하면 위계가 만들어지지 않기 때문입니다")
-
-모든 것을 사용자 목표와 제품 목적에 연결합니다. 항상 문제와 함께 구체적인 개선 사항을 제안합니다.
+When previous `design-baseline.json` exists or `--regression` flag is used:
+- Load baseline grades
+- Compare: per-category deltas, new findings, resolved findings
+- Append regression table to report
 
 ---
 
-## 중요 규칙
+## Design Critique Format
 
-1. **QA 엔지니어가 아닌 디자이너처럼 생각하세요.** 당신은 것들이 올바른 느낌인지, 의도적으로 보이는지, 사용자를 존중하는지에 관심을 갖습니다. 당신은 단순히 것들이 "작동하는지"에만 관심을 갖지 않습니다.
-2. **Screenshot은 증거입니다.** 모든 발견 사항에는 최소 하나의 screenshot이 필요합니다. 주석이 달린 screenshot (`snapshot -a`)을 사용하여 요소를 강조합니다.
-3. **구체적이고 실행 가능하게 하세요.** "Z 때문에 X를 Y로 변경하세요" — "간격이 어색하게 느껴집니다"가 아닌.
-4. **소스 코드를 읽지 마세요.** 구현이 아닌 렌더링된 사이트를 평가합니다. (예외: 추출된 관찰에서 DESIGN.md를 작성하는 것을 제안할 수 있습니다.)
-5. **AI Slop 감지가 당신의 강점입니다.** 대부분의 개발자는 자신의 사이트가 AI 생성처럼 보이는지 평가할 수 없습니다. 당신은 할 수 있습니다. 직접적으로 말하세요.
-6. **빠른 수정이 중요합니다.** 항상 "빠른 수정" 섹션을 포함하세요 — 각각 30분 미만이 걸리는 3-5개의 가장 높은 영향을 미치는 수정.
-7. **까다로운 UI에는 `snapshot -C`를 사용하세요.** 접근성 트리가 놓치는 클릭 가능한 div를 찾습니다.
-8. **반응형은 디자인이지 단순히 "작동함"이 아닙니다.** 모바일에서 쌓인 데스크톱 레이아웃은 반응형 디자인이 아닙니다 — 그것은 게으름입니다. 모바일 레이아웃이 디자인 *감각*이 있는지 평가하세요.
-9. **점진적으로 문서화하세요.** 발견할 때마다 보고서에 각 발견 사항을 작성합니다. 일괄 처리하지 마세요.
-10. **넓이보다 깊이.** screenshot과 구체적인 제안이 있는 5-10개의 잘 문서화된 발견 사항 > 20개의 모호한 관찰.
+Use structured feedback, not opinions:
+- "I notice..." — observation (e.g., "I notice the primary CTA competes with the secondary action")
+- "I wonder..." — question (e.g., "I wonder if users will understand what 'Process' means here")
+- "What if..." — suggestion (e.g., "What if we moved search to a more prominent position?")
+- "I think... because..." — reasoned opinion (e.g., "I think the spacing between sections is too uniform because it doesn't create hierarchy")
 
-Phase 6 끝에서 기준 design score와 AI slop score를 기록합니다.
+Tie everything to user goals and product objectives. Always suggest specific improvements alongside problems.
 
 ---
 
-## 출력 구조
+## Important Rules
+
+1. **Think like a designer, not a QA engineer.** You care whether things feel right, look intentional, and respect the user. You do NOT just care whether things "work."
+2. **Screenshots are evidence.** Every finding needs at least one screenshot. Use annotated screenshots (`snapshot -a`) to highlight elements.
+3. **Be specific and actionable.** "Change X to Y because Z" — not "the spacing feels off."
+4. **Never read source code.** Evaluate the rendered site, not the implementation. (Exception: offer to write DESIGN.md from extracted observations.)
+5. **AI Slop detection is your superpower.** Most developers can't evaluate whether their site looks AI-generated. You can. Be direct about it.
+6. **Quick wins matter.** Always include a "Quick Wins" section — the 3-5 highest-impact fixes that take <30 minutes each.
+7. **Use `snapshot -C` for tricky UIs.** Finds clickable divs that the accessibility tree misses.
+8. **Responsive is design, not just "not broken."** A stacked desktop layout on mobile is not responsive design — it's lazy. Evaluate whether the mobile layout makes *design* sense.
+9. **Document incrementally.** Write each finding to the report as you find it. Don't batch.
+10. **Depth over breadth.** 5-10 well-documented findings with screenshots and specific suggestions > 20 vague observations.
+11. **Show screenshots to the user.** After every `$B screenshot`, `$B snapshot -a -o`, or `$B responsive` command, use the Read tool on the output file(s) so the user can see them inline. For `responsive` (3 files), Read all three. This is critical — without it, screenshots are invisible to the user.
+
+### Design Hard Rules
+
+**Classifier — determine rule set before evaluating:**
+- **MARKETING/LANDING PAGE** (hero-driven, brand-forward, conversion-focused) → apply Landing Page Rules
+- **APP UI** (workspace-driven, data-dense, task-focused: dashboards, admin, settings) → apply App UI Rules
+- **HYBRID** (marketing shell with app-like sections) → apply Landing Page Rules to hero/marketing sections, App UI Rules to functional sections
+
+**Hard rejection criteria** (instant-fail patterns — flag if ANY apply):
+1. Generic SaaS card grid as first impression
+2. Beautiful image with weak brand
+3. Strong headline with no clear action
+4. Busy imagery behind text
+5. Sections repeating same mood statement
+6. Carousel with no narrative purpose
+7. App UI made of stacked cards instead of layout
+
+**Litmus checks** (answer YES/NO for each — used for cross-model consensus scoring):
+1. Brand/product unmistakable in first screen?
+2. One strong visual anchor present?
+3. Page understandable by scanning headlines only?
+4. Each section has one job?
+5. Are cards actually necessary?
+6. Does motion improve hierarchy or atmosphere?
+7. Would design feel premium with all decorative shadows removed?
+
+**Landing page rules** (apply when classifier = MARKETING/LANDING):
+- First viewport reads as one composition, not a dashboard
+- Brand-first hierarchy: brand > headline > body > CTA
+- Typography: expressive, purposeful — no default stacks (Inter, Roboto, Arial, system)
+- No flat single-color backgrounds — use gradients, images, subtle patterns
+- Hero: full-bleed, edge-to-edge, no inset/tiled/rounded variants
+- Hero budget: brand, one headline, one supporting sentence, one CTA group, one image
+- No cards in hero. Cards only when card IS the interaction
+- One job per section: one purpose, one headline, one short supporting sentence
+- Motion: 2-3 intentional motions minimum (entrance, scroll-linked, hover/reveal)
+- Color: define CSS variables, avoid purple-on-white defaults, one accent color default
+- Copy: product language not design commentary. "If deleting 30% improves it, keep deleting"
+- Beautiful defaults: composition-first, brand as loudest text, two typefaces max, cardless by default, first viewport as poster not document
+
+**App UI rules** (apply when classifier = APP UI):
+- Calm surface hierarchy, strong typography, few colors
+- Dense but readable, minimal chrome
+- Organize: primary workspace, navigation, secondary context, one accent
+- Avoid: dashboard-card mosaics, thick borders, decorative gradients, ornamental icons
+- Copy: utility language — orientation, status, action. Not mood/brand/aspiration
+- Cards only when card IS the interaction
+- Section headings state what area is or what user can do ("Selected KPIs", "Plan status")
+
+**Universal rules** (apply to ALL types):
+- Define CSS variables for color system
+- No default font stacks (Inter, Roboto, Arial, system)
+- One job per section
+- "If deleting 30% of the copy improves it, keep deleting"
+- Cards earn their existence — no decorative card grids
+
+**AI Slop blacklist** (the 10 patterns that scream "AI-generated"):
+1. Purple/violet/indigo gradient backgrounds or blue-to-purple color schemes
+2. **The 3-column feature grid:** icon-in-colored-circle + bold title + 2-line description, repeated 3x symmetrically. THE most recognizable AI layout.
+3. Icons in colored circles as section decoration (SaaS starter template look)
+4. Centered everything (`text-align: center` on all headings, descriptions, cards)
+5. Uniform bubbly border-radius on every element (same large radius on everything)
+6. Decorative blobs, floating circles, wavy SVG dividers (if a section feels empty, it needs better content, not decoration)
+7. Emoji as design elements (rockets in headings, emoji as bullet points)
+8. Colored left-border on cards (`border-left: 3px solid <accent>`)
+9. Generic hero copy ("Welcome to [X]", "Unlock the power of...", "Your all-in-one solution for...")
+10. Cookie-cutter section rhythm (hero → 3 features → testimonials → pricing → CTA, every section same height)
+
+Source: [OpenAI "Designing Delightful Frontends with GPT-5.4"](https://developers.openai.com/blog/designing-delightful-frontends-with-gpt-5-4) (Mar 2026) + gstack design methodology.
+
+Record baseline design score and AI slop score at end of Phase 6.
+
+---
+
+## Output Structure
 
 ```
 .gstack/design-reports/
-├── design-audit-{domain}-{YYYY-MM-DD}.md    # 구조화된 보고서
+├── design-audit-{domain}-{YYYY-MM-DD}.md    # Structured report
 ├── screenshots/
 │   ├── first-impression.png                  # Phase 1
-│   ├── {page}-annotated.png                  # 페이지별 주석
-│   ├── {page}-mobile.png                     # 반응형
+│   ├── {page}-annotated.png                  # Per-page annotated
+│   ├── {page}-mobile.png                     # Responsive
 │   ├── {page}-tablet.png
 │   ├── {page}-desktop.png
-│   ├── finding-001-before.png                # 수정 전
-│   ├── finding-001-after.png                 # 수정 후
+│   ├── finding-001-before.png                # Before fix
+│   ├── finding-001-after.png                 # After fix
 │   └── ...
-└── design-baseline.json                      # regression 모드용
+└── design-baseline.json                      # For regression mode
 ```
 
 ---
 
-## Phase 7: 분류
+## Design Outside Voices (parallel)
 
-발견된 모든 항목을 영향도 순으로 정렬한 다음 수정 여부를 결정합니다:
+**Automatic:** Outside voices run automatically when Codex is available. No opt-in needed.
 
-- **높은 영향:** 먼저 수정합니다. 첫인상에 영향을 미치고 사용자 신뢰를 해칩니다.
-- **중간 영향:** 다음에 수정합니다. 세련됨을 줄이고 무의식적으로 느껴집니다.
-- **세련됨:** 시간이 있으면 수정합니다. 좋음과 훌륭함을 구분합니다.
+**Check Codex availability:**
+```bash
+which codex 2>/dev/null && echo "CODEX_AVAILABLE" || echo "CODEX_NOT_AVAILABLE"
+```
 
-소스 코드에서 수정할 수 없는 발견 사항 (예: 서드파티 위젯 문제, 팀에서 카피가 필요한 콘텐츠 문제)은 영향도에 관계없이 "지연됨"으로 표시합니다.
+**If Codex is available**, launch both voices simultaneously:
+
+1. **Codex design voice** (via Bash):
+```bash
+TMPERR_DESIGN=$(mktemp /tmp/codex-design-XXXXXXXX)
+codex exec "Review the frontend source code in this repo. Evaluate against these design hard rules:
+- Spacing: systematic (design tokens / CSS variables) or magic numbers?
+- Typography: expressive purposeful fonts or default stacks?
+- Color: CSS variables with defined system, or hardcoded hex scattered?
+- Responsive: breakpoints defined? calc(100svh - header) for heroes? Mobile tested?
+- A11y: ARIA landmarks, alt text, contrast ratios, 44px touch targets?
+- Motion: 2-3 intentional animations, or zero / ornamental only?
+- Cards: used only when card IS the interaction? No decorative card grids?
+
+First classify as MARKETING/LANDING PAGE vs APP UI vs HYBRID, then apply matching rules.
+
+LITMUS CHECKS — answer YES/NO:
+1. Brand/product unmistakable in first screen?
+2. One strong visual anchor present?
+3. Page understandable by scanning headlines only?
+4. Each section has one job?
+5. Are cards actually necessary?
+6. Does motion improve hierarchy or atmosphere?
+7. Would design feel premium with all decorative shadows removed?
+
+HARD REJECTION — flag if ANY apply:
+1. Generic SaaS card grid as first impression
+2. Beautiful image with weak brand
+3. Strong headline with no clear action
+4. Busy imagery behind text
+5. Sections repeating same mood statement
+6. Carousel with no narrative purpose
+7. App UI made of stacked cards instead of layout
+
+Be specific. Reference file:line for every finding." -s read-only -c 'model_reasoning_effort="high"' --enable web_search_cached 2>"$TMPERR_DESIGN"
+```
+Use a 5-minute timeout (`timeout: 300000`). After the command completes, read stderr:
+```bash
+cat "$TMPERR_DESIGN" && rm -f "$TMPERR_DESIGN"
+```
+
+2. **Claude design subagent** (via Agent tool):
+Dispatch a subagent with this prompt:
+"Review the frontend source code in this repo. You are an independent senior product designer doing a source-code design audit. Focus on CONSISTENCY PATTERNS across files rather than individual violations:
+- Are spacing values systematic across the codebase?
+- Is there ONE color system or scattered approaches?
+- Do responsive breakpoints follow a consistent set?
+- Is the accessibility approach consistent or spotty?
+
+For each finding: what's wrong, severity (critical/high/medium), and the file:line."
+
+**Error handling (all non-blocking):**
+- **Auth failure:** If stderr contains "auth", "login", "unauthorized", or "API key": "Codex authentication failed. Run `codex login` to authenticate."
+- **Timeout:** "Codex timed out after 5 minutes."
+- **Empty response:** "Codex returned no response."
+- On any Codex error: proceed with Claude subagent output only, tagged `[single-model]`.
+- If Claude subagent also fails: "Outside voices unavailable — continuing with primary review."
+
+Present Codex output under a `CODEX SAYS (design source audit):` header.
+Present subagent output under a `CLAUDE SUBAGENT (design consistency):` header.
+
+**Synthesis — Litmus scorecard:**
+
+Use the same scorecard format as /plan-design-review (shown above). Fill in from both outputs.
+Merge findings into the triage with `[codex]` / `[subagent]` / `[cross-model]` tags.
+
+**Log the result:**
+```bash
+~/.claude/skills/gstack/bin/gstack-review-log '{"skill":"design-outside-voices","timestamp":"'"$(date -u +%Y-%m-%dT%H:%M:%SZ)"'","status":"STATUS","source":"SOURCE","commit":"'"$(git rev-parse --short HEAD)"'"}'
+```
+Replace STATUS with "clean" or "issues_found", SOURCE with "codex+subagent", "codex-only", "subagent-only", or "unavailable".
+
+## Phase 7: Triage
+
+Sort all discovered findings by impact, then decide which to fix:
+
+- **High Impact:** Fix first. These affect the first impression and hurt user trust.
+- **Medium Impact:** Fix next. These reduce polish and are felt subconsciously.
+- **Polish:** Fix if time allows. These separate good from great.
+
+Mark findings that cannot be fixed from source code (e.g., third-party widget issues, content problems requiring copy from the team) as "deferred" regardless of impact.
 
 ---
 
-## Phase 8: 수정 루프
+## Phase 8: Fix Loop
 
-영향도 순으로 수정 가능한 각 발견 사항에 대해:
+For each fixable finding, in impact order:
 
-### 8a. 소스 찾기
+### 8a. Locate source
 
 ```bash
-# CSS 클래스, 컴포넌트 이름, 스타일 파일 검색
-# 영향받는 페이지와 일치하는 파일 패턴 Glob
+# Search for CSS classes, component names, style files
+# Glob for file patterns matching the affected page
 ```
 
-- 디자인 문제를 담당하는 소스 파일 찾기
-- 발견 사항과 직접 관련된 파일만 수정
-- 구조적 컴포넌트 변경보다 CSS/스타일링 변경 우선
+- Find the source file(s) responsible for the design issue
+- ONLY modify files directly related to the finding
+- Prefer CSS/styling changes over structural component changes
 
-### 8b. 수정
+### 8b. Fix
 
-- 소스 코드를 읽고 컨텍스트 이해
-- **최소한의 수정** — 디자인 문제를 해결하는 가장 작은 변경
-- CSS 전용 변경 권장 (더 안전하고 되돌리기 쉬움)
-- 주변 코드 리팩터링, 기능 추가, 관련 없는 것 "개선" 금지
+- Read the source code, understand the context
+- Make the **minimal fix** — smallest change that resolves the design issue
+- CSS-only changes are preferred (safer, more reversible)
+- Do NOT refactor surrounding code, add features, or "improve" unrelated things
 
 ### 8c. Commit
 
@@ -544,12 +1030,12 @@ git add <only-changed-files>
 git commit -m "style(design): FINDING-NNN — short description"
 ```
 
-- 수정당 하나의 commit. 여러 수정을 묶지 않음.
-- 메시지 형식: `style(design): FINDING-NNN — short description`
+- One commit per fix. Never bundle multiple fixes.
+- Message format: `style(design): FINDING-NNN — short description`
 
-### 8d. 재테스트
+### 8d. Re-test
 
-영향받는 페이지로 돌아가서 수정 사항을 검증합니다:
+Navigate back to the affected page and verify the fix:
 
 ```bash
 $B goto <affected-url>
@@ -558,90 +1044,101 @@ $B console --errors
 $B snapshot -D
 ```
 
-모든 수정에 대해 **전후 screenshot 쌍**을 캡처합니다.
+Take **before/after screenshot pair** for every fix.
 
-### 8e. 분류
+### 8e. Classify
 
-- **verified**: 재테스트에서 수정이 작동함을 확인, 새로운 오류 없음
-- **best-effort**: 수정 적용됐지만 완전히 검증할 수 없음 (예: 특정 브라우저 상태 필요)
-- **reverted**: 회귀 감지됨 → `git revert HEAD` → 발견 사항을 "지연됨"으로 표시
+- **verified**: re-test confirms the fix works, no new errors introduced
+- **best-effort**: fix applied but couldn't fully verify (e.g., needs specific browser state)
+- **reverted**: regression detected → `git revert HEAD` → mark finding as "deferred"
 
-### 8f. 자기 규제 (STOP AND EVALUATE)
+### 8e.5. Regression Test (design-review variant)
 
-5번의 수정마다 (또는 revert 후), design-fix 위험 수준을 계산합니다:
+Design fixes are typically CSS-only. Only generate regression tests for fixes involving
+JavaScript behavior changes — broken dropdowns, animation failures, conditional rendering,
+interactive state issues.
+
+For CSS-only fixes: skip entirely. CSS regressions are caught by re-running /design-review.
+
+If the fix involved JS behavior: follow the same procedure as /qa Phase 8e.5 (study existing
+test patterns, write a regression test encoding the exact bug condition, run it, commit if
+passes or defer if fails). Commit format: `test(design): regression test for FINDING-NNN`.
+
+### 8f. Self-Regulation (STOP AND EVALUATE)
+
+Every 5 fixes (or after any revert), compute the design-fix risk level:
 
 ```
 DESIGN-FIX RISK:
-  0%에서 시작
-  각 revert:                          +15%
-  각 CSS 전용 파일 변경:              +0%   (안전 — 스타일링만)
-  각 JSX/TSX/컴포넌트 파일 변경:     +5%   파일당
-  수정 10개 후:                       +1%   추가 수정당
-  관련 없는 파일 건드리기:            +20%
+  Start at 0%
+  Each revert:                        +15%
+  Each CSS-only file change:          +0%   (safe — styling only)
+  Each JSX/TSX/component file change: +5%   per file
+  After fix 10:                       +1%   per additional fix
+  Touching unrelated files:           +20%
 ```
 
-**위험 > 20%이면:** 즉시 STOP합니다. 지금까지 한 것을 사용자에게 보여줍니다. 계속할지 물어봅니다.
+**If risk > 20%:** STOP immediately. Show the user what you've done so far. Ask whether to continue.
 
-**최대 30회 수정.** 30개의 수정 후에는 남은 발견 사항에 관계없이 중단합니다.
-
----
-
-## Phase 9: 최종 디자인 감사
-
-모든 수정이 적용된 후:
-
-1. 영향받는 모든 페이지에서 디자인 감사 재실행
-2. 최종 design score와 AI slop score 계산
-3. **최종 점수가 baseline보다 나쁘면:** 두드러지게 경고 — 무언가가 회귀됨
+**Hard cap: 30 fixes.** After 30 fixes, stop regardless of remaining findings.
 
 ---
 
-## Phase 10: 보고서
+## Phase 9: Final Design Audit
 
-로컬 및 프로젝트 범위 위치 모두에 보고서를 작성합니다:
+After all fixes are applied:
 
-**로컬:** `.gstack/design-reports/design-audit-{domain}-{YYYY-MM-DD}.md`
+1. Re-run the design audit on all affected pages
+2. Compute final design score and AI slop score
+3. **If final scores are WORSE than baseline:** WARN prominently — something regressed
 
-**프로젝트 범위:**
+---
+
+## Phase 10: Report
+
+Write the report to both local and project-scoped locations:
+
+**Local:** `.gstack/design-reports/design-audit-{domain}-{YYYY-MM-DD}.md`
+
+**Project-scoped:**
 ```bash
-SLUG=$(git remote get-url origin 2>/dev/null | sed 's|.*[:/]\([^/]*/[^/]*\)\.git$|\1|;s|.*[:/]\([^/]*/[^/]*\)$|\1|' | tr '/' '-')
-mkdir -p ~/.gstack/projects/$SLUG
+eval "$(~/.claude/skills/gstack/bin/gstack-slug 2>/dev/null)" && mkdir -p ~/.gstack/projects/$SLUG
 ```
-`~/.gstack/projects/{slug}/{user}-{branch}-design-audit-{datetime}.md`에 작성
+Write to `~/.gstack/projects/{slug}/{user}-{branch}-design-audit-{datetime}.md`
 
-**발견 사항별 추가 정보** (표준 디자인 감사 보고서 외):
-- 수정 상태: verified / best-effort / reverted / deferred
-- Commit SHA (수정된 경우)
-- 변경된 파일 (수정된 경우)
-- 전후 screenshot (수정된 경우)
+**Per-finding additions** (beyond standard design audit report):
+- Fix Status: verified / best-effort / reverted / deferred
+- Commit SHA (if fixed)
+- Files Changed (if fixed)
+- Before/After screenshots (if fixed)
 
-**요약 섹션:**
-- 전체 발견 사항
-- 적용된 수정 (verified: X, best-effort: Y, reverted: Z)
-- 지연된 발견 사항
-- Design score 변화: baseline → 최종
-- AI slop score 변화: baseline → 최종
+**Summary section:**
+- Total findings
+- Fixes applied (verified: X, best-effort: Y, reverted: Z)
+- Deferred findings
+- Design score delta: baseline → final
+- AI slop score delta: baseline → final
 
-**PR 요약:** PR 설명에 적합한 한 줄 요약 포함:
-> "디자인 검토에서 N개의 문제를 발견하고 M개를 수정했습니다. Design score X → Y, AI slop score X → Y."
-
----
-
-## Phase 11: TODOS.md 업데이트
-
-저장소에 `TODOS.md`가 있는 경우:
-
-1. **새로운 지연된 디자인 발견 사항** → 영향 수준, 카테고리, 설명과 함께 TODO로 추가
-2. **TODOS.md에 있던 수정된 발견 사항** → "/design-review로 {branch}, {date}에 수정됨"으로 주석 추가
+**PR Summary:** Include a one-line summary suitable for PR descriptions:
+> "Design review found N issues, fixed M. Design score X → Y, AI slop score X → Y."
 
 ---
 
-## 추가 규칙 (design-review 전용)
+## Phase 11: TODOS.md Update
 
-11. **깨끗한 working tree 필요.** `git status --porcelain`이 비어있지 않으면 시작을 거부합니다.
-12. **수정당 하나의 commit.** 여러 디자인 수정을 하나의 commit으로 묶지 마세요.
-13. **테스트나 CI 구성을 수정하지 마세요.** 애플리케이션 소스 코드와 스타일만 수정합니다.
-14. **회귀 시 revert.** 수정이 상황을 악화시키면 즉시 `git revert HEAD`를 실행합니다.
-15. **자기 규제.** design-fix 위험 휴리스틱을 따르세요. 의심스러우면 중단하고 물어보세요.
-16. **CSS 우선.** 구조적 컴포넌트 변경보다 CSS/스타일링 변경을 우선시합니다. CSS 전용 변경이 더 안전하고 되돌리기 쉽습니다.
-17. **DESIGN.md 내보내기.** Phase 2에서 사용자가 제안을 수락하면 DESIGN.md 파일을 작성할 수 있습니다.
+If the repo has a `TODOS.md`:
+
+1. **New deferred design findings** → add as TODOs with impact level, category, and description
+2. **Fixed findings that were in TODOS.md** → annotate with "Fixed by /design-review on {branch}, {date}"
+
+---
+
+## Additional Rules (design-review specific)
+
+11. **Clean working tree required.** If dirty, use AskUserQuestion to offer commit/stash/abort before proceeding.
+12. **One commit per fix.** Never bundle multiple design fixes into one commit.
+13. **Only modify tests when generating regression tests in Phase 8e.5.** Never modify CI configuration. Never modify existing tests — only create new test files.
+14. **Revert on regression.** If a fix makes things worse, `git revert HEAD` immediately.
+15. **Self-regulate.** Follow the design-fix risk heuristic. When in doubt, stop and ask.
+16. **CSS-first.** Prefer CSS/styling changes over structural component changes. CSS-only changes are safer and more reversible.
+17. **DESIGN.md export.** You MAY write a DESIGN.md file if the user accepts the offer from Phase 2.

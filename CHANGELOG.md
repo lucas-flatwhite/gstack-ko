@@ -1,390 +1,1017 @@
-# 변경 이력
+# Changelog
 
-## 0.6.4.1 — 2026-03-18
+## [0.11.14.0] - 2026-03-24 — Windows Browse Fix
 
-- **스킬 트리거 문구 강화.** 12개 스킬 설명에 자연어 트리거 프레이즈를 추가해, "deploy 해줘", "diff 점검해줘" 같은 일반 문장에서도 `/ship`, `/review`를 더 안정적으로 찾습니다.
+### Fixed
 
-## 0.6.4 — 2026-03-17
+- **Browse engine now works on Windows.** Three compounding bugs blocked all Windows `/browse` users: the server process died when the CLI exited (Bun's `unref()` doesn't truly detach on Windows), the health check never ran because `process.kill(pid, 0)` is broken in Bun binaries on Windows, and Chromium's sandbox failed when spawned through the Bun→Node process chain. All three are now fixed. Credits to @fqueiro (PR #191) for identifying the `detached: true` approach.
+- **Health check runs first on all platforms.** `ensureServer()` now tries an HTTP health check before falling back to PID-based detection — more reliable on every OS, not just Windows.
+- **Startup errors are logged to disk.** When the server fails to start, errors are written to `~/.gstack/browse-startup-error.log` so Windows users (who lose stderr due to process detachment) can debug.
+- **Chromium sandbox disabled on Windows.** Chromium's sandbox requires elevated privileges when spawned through the Bun→Node chain — now disabled on Windows only.
 
-- **`/plan-design-review` 대화형 전환.** 리포트 생성형(letter grade)에서 벗어나, 각 디자인 차원을 0-10으로 평가하고 계획 자체를 10점 방향으로 직접 수정하는 흐름으로 변경되었습니다.
-- **CEO 리뷰의 디자인 연동 강화.** `/plan-ceo-review`에서 UI 범위를 감지하면 Design & UX 섹션을 활성화해 정보 구조, 인터랙션 상태, 반응형 의도, AI 양산 위험을 함께 검토합니다.
-- **테스트 커버리지 확대.** 다수 스킬에 LLM-judge/E2E/validation 테스트가 추가되어 품질 회귀 감지가 강화되었습니다.
-- **명칭 정리.** `/qa-design-review`가 `/design-review`로 통합/개명되었습니다.
+### For contributors
 
-## 0.6.3 — 2026-03-17
+- New tests for `isServerHealthy()` and startup error logging in `browse/test/config.test.ts`
 
-- **프론트엔드 변경 시 디자인 리뷰 Lite 자동 적용.** `/review`와 `/ship`이 CSS/HTML/JSX/View diff에 대해 20개 디자인 체크를 수행합니다.
-- **`gstack-diff-scope` 추가.** 프론트엔드/백엔드/프롬프트/테스트/문서/설정 변경 범위를 자동 분류해, 리뷰/ship 의사결정에 반영합니다.
-- **Review Readiness Dashboard 확장.** 코드 레벨 Lite 리뷰와 시각 감사 Full 리뷰를 구분해 표시합니다.
+## [0.11.13.0] - 2026-03-24 — Worktree Isolation + Infrastructure Elegance
 
-## 0.6.2 — 2026-03-17
+### Added
 
-- **플랜 리뷰 인지 패턴 강화.** `/plan-ceo-review`, `/plan-eng-review`, `/plan-design-review`가 각 역할에 맞는 사고 패턴(전략/엔지니어링/디자인)을 내재화하도록 업데이트되었습니다.
+- **E2E tests now run in git worktrees.** Gemini and Codex tests no longer pollute your working tree. Each test suite gets an isolated worktree, and useful changes the AI agent makes are automatically harvested as patches you can cherry-pick. Run `git apply ~/.gstack-dev/harvests/<id>/gemini.patch` to grab improvements.
+- **Harvest deduplication.** If a test keeps producing the same improvement across runs, it's detected via SHA-256 hash and skipped — no duplicate patches piling up.
+- **`describeWithWorktree()` helper.** Any E2E test can now opt into worktree isolation with a one-line wrapper. Future tests that need real repo context (git history, real diff) can use this instead of tmpdirs.
 
-## 0.6.1.0 — 2026-03-17
+### Changed
 
-- **diff 기반 테스트 선택.** E2E/LLM-judge 테스트가 변경 파일 기준으로 필요한 케이스만 실행되며, `eval:select`로 실행 대상을 사전 확인할 수 있습니다.
-- **누락 방지 가드레일.** 새 테스트가 touchfile 매핑 없이 추가되면 즉시 실패하도록 검증이 강화되었습니다.
+- **Gen-skill-docs is now a modular resolver pipeline.** The monolithic 1700-line generator is split into 8 focused resolver modules (browse, preamble, design, review, testing, utility, constants, codex-helpers). Adding a new placeholder resolver is now a single file instead of editing a megafunction.
+- **Eval results are project-scoped.** Results now live in `~/.gstack/projects/$SLUG/evals/` instead of the global `~/.gstack-dev/evals/`. Multi-project users no longer get eval results mixed together.
 
-## 0.6.1 — 2026-03-17 (Boil the Lake)
+### For contributors
 
-- **Completeness Principle 도입.** AskUserQuestion 옵션에 완성도 점수(1-10)와 인간 시간/CC+gstack 시간을 함께 표기해, "적당히 80%"보다 "완결형 구현"을 기본 추천하도록 정렬했습니다.
-- **리뷰 기준 확장.** `/review`가 "짧은 시간으로 완결 가능한 미완성 구현"을 명시적으로 플래그합니다.
+- WorktreeManager (`lib/worktree.ts`) is a reusable platform module — future skills like `/batch` can import it directly.
+- 12 new unit tests for WorktreeManager covering lifecycle, harvest, dedup, and error handling.
+- `GLOBAL_TOUCHFILES` updated so worktree infrastructure changes trigger all E2E tests.
+
+## [0.11.12.0] - 2026-03-24 — Triple-Voice Autoplan
+
+Every `/autoplan` phase now gets two independent second opinions — one from Codex (OpenAI's frontier model) and one from a fresh Claude subagent. Three AI reviewers looking at your plan from different angles, each phase building on the last.
+
+### Added
+
+- **Dual voices in every autoplan phase.** CEO review, Design review, and Eng review each run both a Codex challenge and an independent Claude subagent simultaneously. You get a consensus table showing where the models agree and disagree — disagreements surface as taste decisions at the final gate.
+- **Phase-cascading context.** Codex gets prior-phase findings as context (CEO concerns inform Design review, CEO+Design inform Eng). Claude subagent stays truly independent for genuine cross-model validation.
+- **Structured consensus tables.** CEO phase scores 6 strategic dimensions, Design uses the litmus scorecard, Eng scores 6 architecture dimensions. CONFIRMED/DISAGREE for each.
+- **Cross-phase synthesis.** Phase 4 gate highlights themes that appeared independently in multiple phases — high-confidence signals when different reviewers catch the same issue.
+- **Sequential enforcement.** STOP markers between phases + pre-phase checklists prevent autoplan from accidentally parallelizing CEO/Design/Eng (each phase depends on the previous).
+- **Phase-transition summaries.** Brief status at each phase boundary so you can track progress without waiting for the full pipeline.
+- **Degradation matrix.** When Codex or the Claude subagent fails, autoplan gracefully degrades with clear labels (`[codex-only]`, `[subagent-only]`, `[single-reviewer mode]`).
+
+## [0.11.11.0] - 2026-03-23 — Community Wave 3
+
+10 community PRs merged — bug fixes, platform support, and workflow improvements.
+
+### Added
+
+- **Chrome multi-profile cookie import.** You can now import cookies from any Chrome profile, not just Default. Profile picker shows account email for easy identification. Batch import across all visible domains.
+- **Linux Chromium cookie import.** Cookie import now works on Linux for Chrome, Chromium, Brave, and Edge. Supports both GNOME Keyring (libsecret) and the "peanuts" fallback for headless environments.
+- **Chrome extensions in browse sessions.** Set `BROWSE_EXTENSIONS_DIR` to load Chrome extensions (ad blockers, accessibility tools, custom headers) into your browse testing sessions.
+- **Project-scoped gstack install.** `setup --local` installs gstack into `.claude/skills/` in your current project instead of globally. Useful for per-project version pinning.
+- **Distribution pipeline checks.** `/office-hours`, `/plan-eng-review`, `/ship`, and `/review` now check whether new CLI tools or libraries have a build/publish pipeline. No more shipping artifacts nobody can download.
+- **Dynamic skill discovery.** Adding a new skill directory no longer requires editing a hardcoded list. `skill-check` and `gen-skill-docs` automatically discover skills from the filesystem.
+- **Auto-trigger guard.** Skills now include explicit trigger criteria in their descriptions to prevent Claude Code from auto-firing them based on semantic similarity. The existing proactive suggestion system is preserved.
+
+### Fixed
+
+- **Browse server startup crash.** The browse server lock acquisition failed when `.gstack/` directory didn't exist, causing every invocation to think another process held the lock. Fixed by creating the state directory before lock acquisition.
+- **Zsh glob errors in skill preamble.** The telemetry cleanup loop no longer throws `no matches found` in zsh when no pending files exist.
+- **`--force` now actually forces upgrades.** `gstack-upgrade --force` clears the snooze file, so you can upgrade immediately after snoozing.
+- **Three-dot diff in /review scope drift detection.** Scope drift analysis now correctly shows changes since branch creation, not accumulated changes on the base branch.
+- **CI workflow YAML parsing.** Fixed unquoted multiline `run:` scalars that broke YAML parsing. Added actionlint CI workflow.
+
+### Community
+
+Thanks to @osc, @Explorer1092, @Qike-Li, @francoisaubert1, @itstimwhite, @yinanli1917-cloud for contributions in this wave.
+
+## [0.11.10.0] - 2026-03-23 — CI Evals on Ubicloud
+
+### Added
+
+- **E2E evals now run in CI on every PR.** 12 parallel GitHub Actions runners on Ubicloud spin up per PR, each running one test suite. Docker image pre-bakes bun, node, Claude CLI, and deps so setup is near-instant. Results posted as a PR comment with pass/fail + cost breakdown.
+- **3x faster eval runs.** All E2E tests run concurrently within files via `testConcurrentIfSelected`. Wall clock drops from ~18min to ~6min — limited by the slowest individual test, not sequential sum.
+- **Docker CI image** (`Dockerfile.ci`) with pre-installed toolchain. Rebuilds automatically when Dockerfile or package.json changes, cached by content hash in GHCR.
+
+### Fixed
+
+- **Routing tests now work in CI.** Skills are installed at top-level `.claude/skills/` instead of nested under `.claude/skills/gstack/` — project-level skill discovery doesn't recurse into subdirectories.
+
+### For contributors
+
+- `EVALS_CONCURRENCY=40` in CI for maximum parallelism (local default stays at 15)
+- Ubicloud runners at ~$0.006/run (10x cheaper than GitHub standard runners)
+- `workflow_dispatch` trigger for manual re-runs
+
+## [0.11.9.0] - 2026-03-23 — Codex Skill Loading Fix
+
+### Fixed
+
+- **Codex no longer rejects gstack skills with "invalid SKILL.md".** Existing installs had oversized description fields (>1024 chars) that Codex silently rejected. The build now errors if any Codex description exceeds 1024 chars, setup always regenerates `.agents/` to prevent stale files, and a one-time migration auto-cleans oversized descriptions on existing installs.
+- **`package.json` version now stays in sync with `VERSION`.** Was 6 minor versions behind. A new CI test catches future drift.
+
+### Added
+
+- **Codex E2E tests now assert no skill loading errors.** The exact "Skipped loading skill(s)" error that prompted this fix is now a regression test — `stderr` is captured and checked.
+- **Codex troubleshooting entry in README.** Manual fix instructions for users who hit the loading error before the auto-migration runs.
+
+### For contributors
+
+- `test/gen-skill-docs.test.ts` validates all `.agents/` descriptions stay within 1024 chars
+- `gstack-update-check` includes a one-time migration that deletes oversized Codex SKILL.md files
+- P1 TODO added: Codex→Claude reverse buddy check skill
+
+## [0.11.8.0] - 2026-03-23 — zsh Compatibility Fix
+
+### Fixed
+
+- **gstack skills now work in zsh without errors.** Every skill preamble used a `.pending-*` glob pattern that triggered zsh's "no matches found" error on every invocation (the common case where no pending telemetry files exist). Replaced shell glob with `find` to avoid zsh's NOMATCH behavior entirely. Thanks to @hnshah for the initial report and fix in PR #332. Fixes #313.
+
+### Added
+
+- **Regression test for zsh glob safety.** New test verifies all generated SKILL.md files use `find` instead of bare shell globs for `.pending-*` pattern matching.
+
+## [0.11.7.0] - 2026-03-23 — /review → /ship Handoff Fix
+
+### Fixed
+
+- **`/review` now satisfies the ship readiness gate.** Previously, running `/review` before `/ship` always showed "NOT CLEARED" because `/review` didn't log its result and `/ship` only looked for `/plan-eng-review`. Now `/review` persists its outcome to the review log, and all dashboards recognize both `/review` (diff-scoped) and `/plan-eng-review` (plan-stage) as valid Eng Review sources.
+- **Ship abort prompt now mentions both review options.** When Eng Review is missing, `/ship` suggests "run `/review` or `/plan-eng-review`" instead of only mentioning `/plan-eng-review`.
+
+### For contributors
+
+- Based on PR #338 by @malikrohail. DRY improvement per eng review: updated the shared `REVIEW_DASHBOARD` resolver instead of creating a duplicate ship-only resolver.
+- 4 new validation tests covering review-log persistence, dashboard propagation, and abort text.
+
+## [0.11.6.0] - 2026-03-23 — Infrastructure-First Security Audit
+
+### Added
+
+- **`/cso` v2 — start where the breaches actually happen.** The security audit now begins with your infrastructure attack surface (leaked secrets in git history, dependency CVEs, CI/CD pipeline misconfigurations, unverified webhooks, Dockerfile security) before touching application code. 15 phases covering secrets archaeology, supply chain, CI/CD, LLM/AI security, skill supply chain, OWASP Top 10, STRIDE, and active verification.
+- **Two audit modes.** `--daily` runs a zero-noise scan with an 8/10 confidence gate (only reports findings it's highly confident about). `--comprehensive` does a deep monthly scan with a 2/10 bar (surfaces everything worth investigating).
+- **Active verification.** Every finding gets independently verified by a subagent before reporting — no more grep-and-guess. Variant analysis: when one vulnerability is confirmed, the entire codebase is searched for the same pattern.
+- **Trend tracking.** Findings are fingerprinted and tracked across audit runs. You can see what's new, what's fixed, and what's been ignored.
+- **Diff-scoped auditing.** `--diff` mode scopes the audit to changes on your branch vs the base branch — perfect for pre-merge security checks.
+- **3 E2E tests** with planted vulnerabilities (hardcoded API keys, tracked `.env` files, unsigned webhooks, unpinned GitHub Actions, rootless Dockerfiles). All verified passing.
+
+### Changed
+
+- **Stack detection before scanning.** v1 ran Ruby/Java/PHP/C# patterns on every project without checking the stack. v2 detects your framework first and prioritizes relevant checks.
+- **Proper tool usage.** v1 used raw `grep` in Bash; v2 uses Claude Code's native `Grep` tool for reliable results without truncation.
+
+## [0.11.5.2] - 2026-03-22 — Outside Voice
+
+### Added
+
+- **Plan reviews now offer an independent second opinion.** After all review sections complete in `/plan-ceo-review` or `/plan-eng-review`, you can get a "brutally honest outside voice" from a different AI model (Codex CLI, or a fresh Claude subagent if Codex isn't installed). It reads your plan, finds what the review missed — logical gaps, unstated assumptions, feasibility risks — and presents findings verbatim. Optional, recommended, never blocks shipping.
+- **Cross-model tension detection.** When the outside voice disagrees with the review findings, the disagreements are surfaced automatically and offered as TODOs so nothing gets lost.
+- **Outside Voice in the Review Readiness Dashboard.** `/ship` now shows whether an outside voice ran on the plan, alongside the existing CEO/Eng/Design/Adversarial review rows.
+
+### Changed
+
+- **`/plan-eng-review` Codex integration upgraded.** The old hardcoded Step 0.5 is replaced with a richer resolver that adds Claude subagent fallback, review log persistence, dashboard visibility, and higher reasoning effort (`xhigh`).
+
+## [0.11.5.1] - 2026-03-23 — Inline Office Hours
+
+### Changed
+
+- **No more "open another window" for /office-hours.** When `/plan-ceo-review` or `/plan-eng-review` offer to run `/office-hours` first, it now runs inline in the same conversation. The review picks up right where it left off after the design doc is ready. Same for mid-session detection when you're still figuring out what to build.
+- **Handoff note infrastructure removed.** The handoff notes that bridged the old "go to another window" flow are no longer written. Existing notes from prior sessions are still read for backward compatibility.
+
+## [0.11.5.0] - 2026-03-23 — Bash Compatibility Fix
+
+### Fixed
+
+- **`gstack-review-read` and `gstack-review-log` no longer crash under bash.** These scripts used `source <(gstack-slug)` which silently fails to set variables under bash with `set -euo pipefail`, causing `SLUG: unbound variable` errors. Replaced with `eval "$(gstack-slug)"` which works correctly in both bash and zsh.
+- **All SKILL.md templates updated.** Every template that instructed agents to run `source <(gstack-slug)` now uses `eval "$(gstack-slug)"` for cross-shell compatibility. Regenerated all SKILL.md files from templates.
+- **Regression tests added.** New tests verify `eval "$(gstack-slug)"` works under bash strict mode, and guard against `source <(.*gstack-slug` patterns reappearing in templates or bin scripts.
+
+## [0.11.4.0] - 2026-03-22 — Codex in Office Hours
+
+### Added
+
+- **Your brainstorming now gets a second opinion.** After premise challenge in `/office-hours`, you can opt in to a Codex cold read — a completely independent AI that hasn't seen the conversation reviews your problem, answers, and premises. It steelmans your idea, identifies the most revealing thing you said, challenges one premise, and proposes a 48-hour prototype. Two different AI models seeing different things catches blind spots neither would find alone.
+- **Cross-Model Perspective in design docs.** When you use the second opinion, the design doc automatically includes a `## Cross-Model Perspective` section capturing what Codex said — so the independent view is preserved for downstream reviews.
+- **New founder signal: defended premise with reasoning.** When Codex challenges one of your premises and you keep it with articulated reasoning (not just dismissal), that's tracked as a positive signal of conviction.
+
+## [0.11.3.0] - 2026-03-23 — Design Outside Voices
+
+### Added
+
+- **Every design review now gets a second opinion.** `/plan-design-review`, `/design-review`, and `/design-consultation` dispatch both Codex (OpenAI) and a fresh Claude subagent in parallel to independently evaluate your design — then synthesize findings with a litmus scorecard showing where they agree and disagree. Cross-model agreement = high confidence; disagreement = investigate.
+- **OpenAI's design hard rules baked in.** 7 hard rejection criteria, 7 litmus checks, and a landing-page vs app-UI classifier from OpenAI's "Designing Delightful Frontends" framework — merged with gstack's existing 10-item AI slop blacklist. Your design gets evaluated against the same rules OpenAI recommends for their own models.
+- **Codex design voice in every PR.** The lightweight design review that runs in `/ship` and `/review` now includes a Codex design check when frontend files change — automatic, no opt-in needed.
+- **Outside voices in /office-hours brainstorming.** After wireframe sketches, you can now get Codex + Claude subagent design perspectives on your approaches before committing to a direction.
+- **AI slop blacklist extracted as shared constant.** The 10 anti-patterns (purple gradients, 3-column icon grids, centered everything, etc.) are now defined once and shared across all design skills. Easier to maintain, impossible to drift.
+
+## [0.11.2.0] - 2026-03-22 — Codex Just Works
+
+### Fixed
+
+- **Codex no longer shows "exceeds maximum length of 1024 characters" on startup.** Skill descriptions compressed from ~1,200 words to ~280 words — well under the limit. Every skill now has a test enforcing the cap.
+- **No more duplicate skill discovery.** Codex used to find both source SKILL.md files and generated Codex skills, showing every skill twice. Setup now creates a minimal runtime root at `~/.codex/skills/gstack` with only the assets Codex needs — no source files exposed.
+- **Old direct installs auto-migrate.** If you previously cloned gstack into `~/.codex/skills/gstack`, setup detects this and moves it to `~/.gstack/repos/gstack` so skills aren't discovered from the source checkout.
+- **Sidecar directory no longer linked as a skill.** The `.agents/skills/gstack` runtime asset directory was incorrectly symlinked alongside real skills — now skipped.
+
+### Added
+
+- **Repo-local Codex installs.** Clone gstack into `.agents/skills/gstack` inside any repo and run `./setup --host codex` — skills install next to the checkout, no global `~/.codex/` needed. Generated preambles auto-detect whether to use repo-local or global paths at runtime.
+- **Kiro CLI support.** `./setup --host kiro` installs skills for the Kiro agent platform, rewriting paths and symlinking runtime assets. Auto-detected by `--host auto` if `kiro-cli` is installed.
+- **`.agents/` is now gitignored.** Generated Codex skill files are no longer committed — they're created at setup time from templates. Removes 14,000+ lines of generated output from the repo.
+
+### Changed
+
+- **`GSTACK_DIR` renamed to `SOURCE_GSTACK_DIR` / `INSTALL_GSTACK_DIR`** throughout the setup script for clarity about which path points to the source repo vs the install location.
+- **CI validates Codex generation succeeds** instead of checking committed file freshness (since `.agents/` is no longer committed).
+
+## [0.11.1.1] - 2026-03-22 — Plan Files Always Show Review Status
+
+### Added
+
+- **Every plan file now shows review status.** When you exit plan mode, the plan file automatically gets a `GSTACK REVIEW REPORT` section — even if you haven't run any formal reviews yet. Previously, this section only appeared after running `/plan-eng-review`, `/plan-ceo-review`, `/plan-design-review`, or `/codex review`. Now you always know where you stand: which reviews have run, which haven't, and what to do next.
+
+## [0.11.1.0] - 2026-03-22 — Global Retro: Cross-Project AI Coding Retrospective
+
+### Added
+
+- **`/retro global` — see everything you shipped across every project in one report.** Scans your Claude Code, Codex CLI, and Gemini CLI sessions, traces each back to its git repo, deduplicates by remote, then runs a full retro across all of them. Global shipping streak, context-switching metrics, per-project breakdowns with personal contributions, and cross-tool usage patterns. Run `/retro global 14d` for a two-week view.
+- **Per-project personal contributions in global retro.** Each project in the global retro now shows YOUR commits, LOC, key work, commit type mix, and biggest ship — separate from team totals. Solo projects say "Solo project — all commits are yours." Team projects you didn't touch show session count only.
+- **`gstack-global-discover` — the engine behind global retro.** Standalone discovery script that finds all AI coding sessions on your machine, resolves working directories to git repos, normalizes SSH/HTTPS remotes for dedup, and outputs structured JSON. Compiled binary ships with gstack — no `bun` runtime needed.
+
+### Fixed
+
+- **Discovery script reads only the first few KB of session files** instead of loading entire multi-MB JSONL transcripts into memory. Prevents OOM on machines with extensive coding history.
+- **Claude Code session counts are now accurate.** Previously counted all JSONL files in a project directory; now only counts files modified within the time window.
+- **Week windows (`1w`, `2w`) are now midnight-aligned** like day windows, so `/retro global 1w` and `/retro global 7d` produce consistent results.
+
+## [0.11.0.0] - 2026-03-22 — /cso: Zero-Noise Security Audits
+
+### Added
+
+- **`/cso` — your Chief Security Officer.** Full codebase security audit: OWASP Top 10, STRIDE threat modeling, attack surface mapping, data classification, and dependency scanning. Each finding includes severity, confidence score, a concrete exploit scenario, and remediation options. Not a linter — a threat model.
+- **Zero-noise false positive filtering.** 17 hard exclusions and 9 precedents adapted from Anthropic's security review methodology. DOS isn't a finding. Test files aren't attack surface. React is XSS-safe by default. Every finding must score 8/10+ confidence to make the report. The result: 3 real findings, not 3 real + 12 theoretical.
+- **Independent finding verification.** Each candidate finding is verified by a fresh sub-agent that only sees the finding and the false positive rules — no anchoring bias from the initial scan. Findings that fail independent verification are silently dropped.
+- **`browse storage` now redacts secrets automatically.** Tokens, JWTs, API keys, GitHub PATs, and Bearer tokens are detected by both key name and value prefix. You see `[REDACTED — 42 chars]` instead of the secret.
+- **Azure metadata endpoint blocked.** SSRF protection for `browse goto` now covers all three major cloud providers (AWS, GCP, Azure).
+
+### Fixed
+
+- **`gstack-slug` hardened against shell injection.** Output sanitized to alphanumeric, dot, dash, and underscore only. All remaining `eval $(gstack-slug)` callers migrated to `source <(...)`.
+- **DNS rebinding protection.** `browse goto` now resolves hostnames to IPs and checks against the metadata blocklist — prevents attacks where a domain initially resolves to a safe IP, then switches to a cloud metadata endpoint.
+- **Concurrent server start race fixed.** An exclusive lockfile prevents two CLI invocations from both killing the old server and starting new ones simultaneously, which could leave orphaned Chromium processes.
+- **Smarter storage redaction.** Key matching now uses underscore-aware boundaries (won't false-positive on `keyboardShortcuts` or `monkeyPatch`). Value detection expanded to cover AWS, Stripe, Anthropic, Google, Sendgrid, and Supabase key prefixes.
+- **CI workflow YAML lint error fixed.**
+
+### For contributors
+
+- **Community PR triage process documented** in CONTRIBUTING.md.
+- **Storage redaction test coverage.** Four new tests for key-based and value-based detection.
+
+## [0.10.2.0] - 2026-03-22 — Autoplan Depth Fix
+
+### Fixed
+
+- **`/autoplan` now produces full-depth reviews instead of compressing everything to one-liners.** When autoplan said "auto-decide," it meant "decide FOR the user using principles" — but the agent interpreted it as "skip the analysis entirely." Now autoplan explicitly defines the contract: auto-decide replaces your judgment, not the analysis. Every review section still gets read, diagrammed, and evaluated. You get the same depth as running each review manually.
+- **Execution checklists for CEO and Eng phases.** Each phase now enumerates exactly what must be produced — premise challenges, architecture diagrams, test coverage maps, failure registries, artifacts on disk. No more "follow that file at full depth" without saying what "full depth" means.
+- **Pre-gate verification catches skipped outputs.** Before presenting the final approval gate, autoplan now checks a concrete checklist of required outputs. Missing items get produced before the gate opens (max 2 retries, then warns).
+- **Test review can never be skipped.** The Eng review's test diagram section — the highest-value output — is explicitly marked NEVER SKIP OR COMPRESS with instructions to read actual diffs, map every codepath to coverage, and write the test plan artifact.
+
+## [0.10.1.0] - 2026-03-22 — Test Coverage Catalog
+
+### Added
+
+- **Test coverage audit now works everywhere — plan, ship, and review.** The codepath tracing methodology (ASCII diagrams, quality scoring, gap detection) is shared across `/plan-eng-review`, `/ship`, and `/review` via a single `{{TEST_COVERAGE_AUDIT}}` resolver. Plan mode adds missing tests to your plan before you write code. Ship mode auto-generates tests for gaps. Review mode finds untested paths during pre-landing review. One methodology, three contexts, zero copy-paste.
+- **`/review` Step 4.75 — test coverage diagram.** Before landing code, `/review` now traces every changed codepath and produces an ASCII coverage map showing what's tested (★★★/★★/★) and what's not (GAP). Gaps become INFORMATIONAL findings that follow the Fix-First flow — you can generate the missing tests right there.
+- **E2E test recommendations built in.** The coverage audit knows when to recommend E2E tests (common user flows, tricky integrations where unit tests can't cover it) vs unit tests, and flags LLM prompt changes that need eval coverage. No more guessing whether something needs an integration test.
+- **Regression detection iron rule.** When a code change modifies existing behavior, gstack always writes a regression test — no asking, no skipping. If you changed it, you test it.
+- **`/ship` failure triage.** When tests fail during ship, the coverage audit classifies each failure and recommends next steps instead of just dumping the error output.
+- **Test framework auto-detection.** Reads your CLAUDE.md for test commands first, then auto-detects from project files (package.json, Gemfile, pyproject.toml, etc.). Works with any framework.
+
+### Fixed
+
+- **gstack no longer crashes in repos without an `origin` remote.** The `gstack-repo-mode` helper now gracefully handles missing remotes, bare repos, and empty git output — defaulting to `unknown` mode instead of crashing the preamble.
+- **`REPO_MODE` defaults correctly when the helper emits nothing.** Previously an empty response from `gstack-repo-mode` left `REPO_MODE` unset, causing downstream template errors.
+
+## [0.10.0.0] - 2026-03-22 — Autoplan
+
+### Added
+
+- **`/autoplan` — one command, fully reviewed plan.** Hand it a rough plan and it runs the full CEO → design → eng review pipeline automatically. Reads the actual review skill files from disk (same depth, same rigor as running each review manually) and makes intermediate decisions using 6 encoded principles: completeness, boil lakes, pragmatic, DRY, explicit over clever, bias toward action. Taste decisions (close approaches, borderline scope, codex disagreements) surface at a final approval gate. You approve, override, interrogate, or revise. Saves a restore point so you can re-run from scratch. Writes review logs compatible with `/ship`'s dashboard.
+
+## [0.9.8.0] - 2026-03-21 — Deploy Pipeline + E2E Performance
+
+### Added
+
+- **`/land-and-deploy` — merge, deploy, and verify in one command.** Takes over where `/ship` left off. Merges the PR, waits for CI and deploy workflows, then runs canary verification on your production URL. Auto-detects your deploy platform (Fly.io, Render, Vercel, Netlify, Heroku, GitHub Actions). Offers revert at every failure point. One command from "PR approved" to "verified in production."
+- **`/canary` — post-deploy monitoring loop.** Watches your live app for console errors, performance regressions, and page failures using the browse daemon. Takes periodic screenshots, compares against pre-deploy baselines, and alerts on anomalies. Run `/canary https://myapp.com --duration 10m` after any deploy.
+- **`/benchmark` — performance regression detection.** Establishes baselines for page load times, Core Web Vitals, and resource sizes. Compares before/after on every PR. Tracks performance trends over time. Catches the bundle size regressions that code review misses.
+- **`/setup-deploy` — one-time deploy configuration.** Detects your deploy platform, production URL, health check endpoints, and deploy status commands. Writes the config to CLAUDE.md so all future `/land-and-deploy` runs are fully automatic.
+- **`/review` now includes Performance & Bundle Impact analysis.** The informational review pass checks for heavy dependencies, missing lazy loading, synchronous script tags, and bundle size regressions. Catches moment.js-instead-of-date-fns before it ships.
+
+### Changed
+
+- **E2E tests now run 3-5x faster.** Structure tests default to Sonnet (5x faster, 5x cheaper). Quality tests (planted-bug detection, design quality, strategic review) stay on Opus. Full suite dropped from 50-80 minutes to ~15-25 minutes.
+- **`--retry 2` on all E2E tests.** Flaky tests get a second chance without masking real failures.
+- **`test:e2e:fast` tier.** Excludes the 8 slowest Opus quality tests for quick feedback (~5-7 minutes). Run `bun run test:e2e:fast` for rapid iteration.
+- **E2E timing telemetry.** Every test now records `first_response_ms`, `max_inter_turn_ms`, and `model` used. Wall-clock timing shows whether parallelism is actually working.
+
+### Fixed
+
+- **`plan-design-review-plan-mode` no longer races.** Each test gets its own isolated tmpdir — no more concurrent tests polluting each other's working directory.
+- **`ship-local-workflow` no longer wastes 6 of 15 turns.** Ship workflow steps are inlined in the test prompt instead of having the agent read the 700+ line SKILL.md at runtime.
+- **`design-consultation-core` no longer fails on synonym sections.** "Colors" matches "Color", "Type System" matches "Typography" — fuzzy synonym-based matching with all 7 sections still required.
+
+## [0.9.7.0] - 2026-03-21 — Plan File Review Report
+
+### Added
+
+- **Every plan file now shows which reviews have run.** After any review skill finishes (`/plan-ceo-review`, `/plan-eng-review`, `/plan-design-review`, `/codex review`), a markdown table is appended to the plan file itself — showing each review's trigger command, purpose, run count, status, and findings summary. Anyone reading the plan can see review status at a glance without checking conversation history.
+- **Review logs now capture richer data.** CEO reviews log scope proposal counts (proposed/accepted/deferred), eng reviews log total issues found, design reviews log before→after scores, and codex reviews log how many findings were fixed. The plan file report uses these fields directly — no more guessing from partial metadata.
+
+## [0.9.6.0] - 2026-03-21 — Auto-Scaled Adversarial Review
+
+### Changed
+
+- **Review thoroughness now scales automatically with diff size.** Small diffs (<50 lines) skip adversarial review entirely — no wasted time on typo fixes. Medium diffs (50–199 lines) get a cross-model adversarial challenge from Codex (or a Claude adversarial subagent if Codex isn't installed). Large diffs (200+ lines) get all four passes: Claude structured, Codex structured review with pass/fail gate, Claude adversarial subagent, and Codex adversarial challenge. No configuration needed — it just works.
+- **Claude now has an adversarial mode.** A fresh Claude subagent with no checklist bias reviews your code like an attacker — finding edge cases, race conditions, security holes, and silent data corruption that the structured review might miss. Findings are classified as FIXABLE (auto-fixed) or INVESTIGATE (your call).
+- **Review dashboard shows "Adversarial" instead of "Codex Review."** The dashboard row reflects the new multi-model reality — it tracks whichever adversarial passes actually ran, not just Codex.
+
+## [0.9.5.0] - 2026-03-21 — Builder Ethos
+
+### Added
+
+- **ETHOS.md — gstack's builder philosophy in one document.** Four principles: The Golden Age (AI compression ratios), Boil the Lake (completeness is cheap), Search Before Building (three layers of knowledge), and Build for Yourself. This is the philosophical source of truth that every workflow skill references.
+- **Every workflow skill now searches before recommending.** Before suggesting infrastructure patterns, concurrency approaches, or framework-specific solutions, gstack checks if the runtime has a built-in and whether the pattern is current best practice. Three layers of knowledge — tried-and-true (Layer 1), new-and-popular (Layer 2), and first-principles (Layer 3) — with the most valuable insights prized above all.
+- **Eureka moments.** When first-principles reasoning reveals that conventional wisdom is wrong, gstack names it, celebrates it, and logs it. Your weekly `/retro` now surfaces these insights so you can see where your projects zigged while others zagged.
+- **`/office-hours` adds Landscape Awareness phase.** After understanding your problem through questioning but before challenging premises, gstack searches for what the world thinks — then runs a three-layer synthesis to find where conventional wisdom might be wrong for your specific case.
+- **`/plan-eng-review` adds search check.** Step 0 now verifies architectural patterns against current best practices and flags custom solutions where built-ins exist.
+- **`/investigate` searches on hypothesis failure.** When your first debugging hypothesis is wrong, gstack searches for the exact error message and known framework issues before guessing again.
+- **`/design-consultation` three-layer synthesis.** Competitive research now uses the structured Layer 1/2/3 framework to find where your product should deliberately break from category norms.
+- **CEO review saves context when handing off to `/office-hours`.** When `/plan-ceo-review` suggests running `/office-hours` first, it now saves a handoff note with your system audit findings and any discussion so far. When you come back and re-invoke `/plan-ceo-review`, it picks up that context automatically — no more starting from scratch.
+
+## [0.9.4.1] - 2026-03-20
+
+### Changed
+
+- **`/retro` no longer nags about PR size.** The retro still reports PR size distribution (Small/Medium/Large/XL) as neutral data, but no longer flags XL PRs as problems or recommends splitting them. AI reviews don't fatigue — the unit of work is the feature, not the diff.
+
+## [0.9.4.0] - 2026-03-20 — Codex Reviews On By Default
+
+### Changed
+
+- **Codex code reviews now run automatically in `/ship` and `/review`.** No more "want a second opinion?" prompt every time — Codex reviews both your code (with a pass/fail gate) and runs an adversarial challenge by default. First-time users get a one-time opt-in prompt; after that, it's hands-free. Configure with `gstack-config set codex_reviews enabled|disabled`.
+- **All Codex operations use maximum reasoning power.** Review, adversarial, and consult modes all use `xhigh` reasoning effort — when an AI is reviewing your code, you want it thinking as hard as possible.
+- **Codex review errors can't corrupt the dashboard.** Auth failures, timeouts, and empty responses are now detected before logging results, so the Review Readiness Dashboard never shows a false "passed" entry. Adversarial stderr is captured separately.
+- **Codex review log includes commit hash.** Staleness detection now works correctly for Codex reviews, matching the same commit-tracking behavior as eng/CEO/design reviews.
+
+### Fixed
+
+- **Codex-for-Codex recursion prevented.** When gstack runs inside Codex CLI (`.agents/skills/`), the Codex review step is completely stripped — no accidental infinite loops.
+
+## [0.9.3.0] - 2026-03-20 — Windows Support
+
+### Fixed
+
+- **gstack now works on Windows 11.** Setup no longer hangs when verifying Playwright, and the browse server automatically falls back to Node.js to work around a Bun pipe-handling bug on Windows ([bun#4253](https://github.com/oven-sh/bun/issues/4253)). Just make sure Node.js is installed alongside Bun. macOS and Linux are completely unaffected.
+- **Path handling works on Windows.** All hardcoded `/tmp` paths and Unix-style path separators now use platform-aware equivalents via a new `platform.ts` module. Path traversal protection works correctly with Windows backslash separators.
+
+### Added
+
+- **Bun API polyfill for Node.js.** When the browse server runs under Node.js on Windows, a compatibility layer provides `Bun.serve()`, `Bun.spawn()`, `Bun.spawnSync()`, and `Bun.sleep()` equivalents. Fully tested.
+- **Node server build script.** `browse/scripts/build-node-server.sh` transpiles the server for Node.js, stubs `bun:sqlite`, and injects the polyfill — all automated during `bun run build`.
+
+## [0.9.2.0] - 2026-03-20 — Gemini CLI E2E Tests
+
+### Added
+
+- **Gemini CLI is now tested end-to-end.** Two E2E tests verify that gstack skills work when invoked by Google's Gemini CLI (`gemini -p`). The `gemini-discover-skill` test confirms skill discovery from `.agents/skills/`, and `gemini-review-findings` runs a full code review via gstack-review. Both parse Gemini's stream-json NDJSON output and track token usage.
+- **Gemini JSONL parser with 10 unit tests.** `parseGeminiJSONL` handles all Gemini event types (init, message, tool_use, tool_result, result) with defensive parsing for malformed input. The parser is a pure function, independently testable without spawning the CLI.
+- **`bun run test:gemini`** and **`bun run test:gemini:all`** scripts for running Gemini E2E tests independently. Gemini tests are also included in `test:evals` and `test:e2e` aggregate scripts.
+
+## [0.9.1.0] - 2026-03-20 — Adversarial Spec Review + Skill Chaining
+
+### Added
+
+- **Your design docs now get stress-tested before you see them.** When you run `/office-hours`, an independent AI reviewer checks your design doc for completeness, consistency, clarity, scope creep, and feasibility — up to 3 rounds. You get a quality score (1-10) and a summary of what was caught and fixed. The doc you approve has already survived adversarial review.
+- **Visual wireframes during brainstorming.** For UI ideas, `/office-hours` now generates a rough HTML wireframe using your project's design system (from DESIGN.md) and screenshots it. You see what you're designing while you're still thinking, not after you've coded it.
+- **Skills help each other now.** `/plan-ceo-review` and `/plan-eng-review` detect when you'd benefit from running `/office-hours` first and offer it — one-tap to switch, one-tap to decline. If you seem lost during a CEO review, it'll gently suggest brainstorming first.
+- **Spec review metrics.** Every adversarial review logs iterations, issues found/fixed, and quality score to `~/.gstack/analytics/spec-review.jsonl`. Over time, you can see if your design docs are getting better.
+
+## [0.9.0.1] - 2026-03-19
+
+### Changed
+
+- **Telemetry opt-in now defaults to community mode.** First-time prompt asks "Help gstack get better!" (community mode with stable device ID for trend tracking). If you decline, you get a second chance with anonymous mode (no unique ID, just a counter). Respects your choice either way.
+
+### Fixed
+
+- **Review logs and telemetry now persist during plan mode.** When you ran `/plan-ceo-review`, `/plan-eng-review`, or `/plan-design-review` in plan mode, the review result wasn't saved to disk — so the dashboard showed stale or missing entries even though you just completed a review. Same issue affected telemetry logging at the end of every skill. Both now work reliably in plan mode.
+
+## [0.9.0] - 2026-03-19 — Works on Codex, Gemini CLI, and Cursor
+
+**gstack now works on any AI agent that supports the open SKILL.md standard.** Install once, use from Claude Code, OpenAI Codex CLI, Google Gemini CLI, or Cursor. All 21 skills are available in `.agents/skills/` -- just run `./setup --host codex` or `./setup --host auto` and your agent discovers them automatically.
+
+- **One install, four agents.** Claude Code reads from `.claude/skills/`, everything else reads from `.agents/skills/`. Same skills, same prompts, adapted for each host. Hook-based safety skills (careful, freeze, guard) get inline safety advisory prose instead of hooks -- they work everywhere.
+- **Auto-detection.** `./setup --host auto` detects which agents you have installed and sets up both. Already have Claude Code? It still works exactly the same.
+- **Codex-adapted output.** Frontmatter is stripped to just name + description (Codex doesn't need allowed-tools or hooks). Paths are rewritten from `~/.claude/` to `~/.codex/`. The `/codex` skill itself is excluded from Codex output -- it's a Claude wrapper around `codex exec`, which would be self-referential.
+- **CI checks both hosts.** The freshness check now validates Claude and Codex output independently. Stale Codex docs break the build just like stale Claude docs.
+
+## [0.8.6] - 2026-03-19
+
+### Added
+
+- **You can now see how you use gstack.** Run `gstack-analytics` to see a personal usage dashboard — which skills you use most, how long they take, your success rate. All data stays local on your machine.
+- **Opt-in community telemetry.** On first run, gstack asks if you want to share anonymous usage data (skill names, duration, crash info — never code or file paths). Choose "yes" and you're part of the community pulse. Change anytime with `gstack-config set telemetry off`.
+- **Community health dashboard.** Run `gstack-community-dashboard` to see what the gstack community is building — most popular skills, crash clusters, version distribution. All powered by Supabase.
+- **Install base tracking via update check.** When telemetry is enabled, gstack fires a parallel ping to Supabase during update checks — giving us an install-base count without adding any latency. Respects your telemetry setting (default off). GitHub remains the primary version source.
+- **Crash clustering.** Errors are automatically grouped by type and version in the Supabase backend, so the most impactful bugs surface first.
+- **Upgrade funnel tracking.** We can now see how many people see upgrade prompts vs actually upgrade — helps us ship better releases.
+- **/retro now shows your gstack usage.** Weekly retrospectives include skill usage stats (which skills you used, how often, success rate) alongside your commit history.
+- **Session-specific pending markers.** If a skill crashes mid-run, the next invocation correctly finalizes only that session — no more race conditions between concurrent gstack sessions.
+
+## [0.8.5] - 2026-03-19
+
+### Fixed
+
+- **`/retro` now counts full calendar days.** Running a retro late at night no longer silently misses commits from earlier in the day. Git treats bare dates like `--since="2026-03-11"` as "11pm on March 11" if you run it at 11pm — now we pass `--since="2026-03-11T00:00:00"` so it always starts from midnight. Compare mode windows get the same fix.
+- **Review log no longer breaks on branch names with `/`.** Branch names like `garrytan/design-system` caused review log writes to fail because Claude Code runs multi-line bash blocks as separate shell invocations, losing variables between commands. New `gstack-review-log` and `gstack-review-read` atomic helpers encapsulate the entire operation in a single command.
+- **All skill templates are now platform-agnostic.** Removed Rails-specific patterns (`bin/test-lane`, `RAILS_ENV`, `.includes()`, `rescue StandardError`, etc.) from `/ship`, `/review`, `/plan-ceo-review`, and `/plan-eng-review`. The review checklist now shows examples for Rails, Node, Python, and Django side-by-side.
+- **`/ship` reads CLAUDE.md to discover test commands** instead of hardcoding `bin/test-lane` and `npm run test`. If no test commands are found, it asks the user and persists the answer to CLAUDE.md.
+
+### Added
+
+- **Platform-agnostic design principle** codified in CLAUDE.md — skills must read project config, never hardcode framework commands.
+- **`## Testing` section** in CLAUDE.md for `/ship` test command discovery.
+
+## [0.8.4] - 2026-03-19
+
+### Added
+
+- **`/ship` now automatically syncs your docs.** After creating the PR, `/ship` runs `/document-release` as Step 8.5 — README, ARCHITECTURE, CONTRIBUTING, and CLAUDE.md all stay current without an extra command. No more stale docs after shipping.
+- **Six new skills in the docs.** README, docs/skills.md, and BROWSER.md now cover `/codex` (multi-AI second opinion), `/careful` (destructive command warnings), `/freeze` (directory-scoped edit lock), `/guard` (full safety mode), `/unfreeze`, and `/gstack-upgrade`. The sprint skill table keeps its 15 specialists; a new "Power tools" section covers the rest.
+- **Browse handoff documented everywhere.** BROWSER.md command table, docs/skills.md deep-dive, and README "What's new" all explain `$B handoff` and `$B resume` for CAPTCHA/MFA/auth walls.
+- **Proactive suggestions know about all skills.** Root SKILL.md.tmpl now suggests `/codex`, `/careful`, `/freeze`, `/guard`, `/unfreeze`, and `/gstack-upgrade` at the right workflow stages.
+
+## [0.8.3] - 2026-03-19
+
+### Added
+
+- **Plan reviews now guide you to the next step.** After running `/plan-ceo-review`, `/plan-eng-review`, or `/plan-design-review`, you get a recommendation for what to run next — eng review is always suggested as the required shipping gate, design review is suggested when UI changes are detected, and CEO review is softly mentioned for big product changes. No more remembering the workflow yourself.
+- **Reviews know when they're stale.** Each review now records the commit it was run at. The dashboard compares that against your current HEAD and tells you exactly how many commits have elapsed — "eng review may be stale — 13 commits since review" instead of guessing.
+- **`skip_eng_review` respected everywhere.** If you've opted out of eng review globally, the chaining recommendations won't nag you about it.
+- **Design review lite now tracks commits too.** The lightweight design check that runs inside `/review` and `/ship` gets the same staleness tracking as full reviews.
+
+### Fixed
+
+- **Browse no longer navigates to dangerous URLs.** `goto`, `diff`, and `newtab` now block `file://`, `javascript:`, `data:` schemes and cloud metadata endpoints (`169.254.169.254`, `metadata.google.internal`). Localhost and private IPs are still allowed for local QA testing. (Closes #17)
+- **Setup script tells you what's missing.** Running `./setup` without `bun` installed now shows a clear error with install instructions instead of a cryptic "command not found." (Closes #147)
+- **`/debug` renamed to `/investigate`.** Claude Code has a built-in `/debug` command that shadowed the gstack skill. The systematic root-cause debugging workflow now lives at `/investigate`. (Closes #190)
+- **Shell injection surface reduced.** gstack-slug output is now sanitized to `[a-zA-Z0-9._-]` only, making both `eval` and `source` callers safe. (Closes #133)
+- **25 new security tests.** URL validation (16 tests) and path traversal validation (14 tests) now have dedicated unit test suites covering scheme blocking, metadata IP blocking, directory escapes, and prefix collision edge cases.
+
+## [0.8.2] - 2026-03-19
+
+### Added
+
+- **Hand off to a real Chrome when the headless browser gets stuck.** Hit a CAPTCHA, auth wall, or MFA prompt? Run `$B handoff "reason"` and a visible Chrome opens at the exact same page with all your cookies and tabs intact. Solve the problem, tell Claude you're done, and `$B resume` picks up right where you left off with a fresh snapshot.
+- **Auto-handoff hint after 3 consecutive failures.** If the browse tool fails 3 times in a row, it suggests using `handoff` — so you don't waste time watching the AI retry a CAPTCHA.
+- **15 new tests for the handoff feature.** Unit tests for state save/restore, failure tracking, edge cases, plus integration tests for the full headless-to-headed flow with cookie and tab preservation.
+
+### Changed
+
+- `recreateContext()` refactored to use shared `saveState()`/`restoreState()` helpers — same behavior, less code, ready for future state persistence features.
+- `browser.close()` now has a 5-second timeout to prevent hangs when closing headed browsers on macOS.
+
+## [0.8.1] - 2026-03-19
+
+### Fixed
+
+- **`/qa` no longer refuses to use the browser on backend-only changes.** Previously, if your branch only changed prompt templates, config files, or service logic, `/qa` would analyze the diff, conclude "no UI to test," and suggest running evals instead. Now it always opens the browser -- falling back to a Quick mode smoke test (homepage + top 5 navigation targets) when no specific pages are identified from the diff.
+
+## [0.8.0] - 2026-03-19 — Multi-AI Second Opinion
+
+**`/codex` — get an independent second opinion from a completely different AI.**
+
+Three modes. `/codex review` runs OpenAI's Codex CLI against your diff and gives a pass/fail gate — if Codex finds critical issues (`[P1]`), it fails. `/codex challenge` goes adversarial: it tries to find ways your code will fail in production, thinking like an attacker and a chaos engineer. `/codex <anything>` opens a conversation with Codex about your codebase, with session continuity so follow-ups remember context.
+
+When both `/review` (Claude) and `/codex review` have run, you get a cross-model analysis showing which findings overlap and which are unique to each AI — building intuition for when to trust which system.
+
+**Integrated everywhere.** After `/review` finishes, it offers a Codex second opinion. During `/ship`, you can run Codex review as an optional gate before pushing. In `/plan-eng-review`, Codex can independently critique your plan before the engineering review begins. All Codex results show up in the Review Readiness Dashboard.
+
+**Also in this release:** Proactive skill suggestions — gstack now notices what stage of development you're in and suggests the right skill. Don't like it? Say "stop suggesting" and it remembers across sessions.
+
+## [0.7.4] - 2026-03-18
+
+### Changed
+
+- **`/qa` and `/design-review` now ask what to do with uncommitted changes** instead of refusing to start. When your working tree is dirty, you get an interactive prompt with three options: commit your changes, stash them, or abort. No more cryptic "ERROR: Working tree is dirty" followed by a wall of text.
+
+## [0.7.3] - 2026-03-18
+
+### Added
+
+- **Safety guardrails you can turn on with one command.** Say "be careful" or "safety mode" and `/careful` will warn you before any destructive command — `rm -rf`, `DROP TABLE`, force-push, `kubectl delete`, and more. You can override every warning. Common build artifact cleanups (`rm -rf node_modules`, `dist`, `.next`) are whitelisted.
+- **Lock edits to one folder with `/freeze`.** Debugging something and don't want Claude to "fix" unrelated code? `/freeze` blocks all file edits outside a directory you choose. Hard block, not just a warning. Run `/unfreeze` to remove the restriction without ending your session.
+- **`/guard` activates both at once.** One command for maximum safety when touching prod or live systems — destructive command warnings plus directory-scoped edit restrictions.
+- **`/debug` now auto-freezes edits to the module being debugged.** After forming a root cause hypothesis, `/debug` locks edits to the narrowest affected directory. No more accidental "fixes" to unrelated code during debugging.
+- **You can now see which skills you use and how often.** Every skill invocation is logged locally to `~/.gstack/analytics/skill-usage.jsonl`. Run `bun run analytics` to see your top skills, per-repo breakdown, and how often safety hooks actually catch something. Data stays on your machine.
+- **Weekly retros now include skill usage.** `/retro` shows which skills you used during the retro window alongside your usual commit analysis and metrics.
+
+## [0.7.2] - 2026-03-18
+
+### Fixed
+
+- `/retro` date ranges now align to midnight instead of the current time. Running `/retro` at 9pm no longer silently drops the morning of the start date — you get full calendar days.
+- `/retro` timestamps now use your local timezone instead of hardcoded Pacific time. Users outside the US-West coast get correct local hours in histograms, session detection, and streak tracking.
+
+## [0.7.1] - 2026-03-19
+
+### Added
+
+- **gstack now suggests skills at natural moments.** You don't need to know slash commands — just talk about what you're doing. Brainstorming an idea? gstack suggests `/office-hours`. Something's broken? It suggests `/debug`. Ready to deploy? It suggests `/ship`. Every workflow skill now has proactive triggers that fire when the moment is right.
+- **Lifecycle map.** gstack's root skill description now includes a developer workflow guide mapping 12 stages (brainstorm → plan → review → code → debug → test → ship → docs → retro) to the right skill. Claude sees this in every session.
+- **Opt-out with natural language.** If proactive suggestions feel too aggressive, just say "stop suggesting things" — gstack remembers across sessions. Say "be proactive again" to re-enable.
+- **11 journey-stage E2E tests.** Each test simulates a real moment in the developer lifecycle with realistic project context (plan.md, error logs, git history, code) and verifies the right skill fires from natural language alone. 11/11 pass.
+- **Trigger phrase validation.** Static tests verify every workflow skill has "Use when" and "Proactively suggest" phrases — catches regressions for free.
+
+### Fixed
+
+- `/debug` and `/office-hours` were completely invisible to natural language — no trigger phrases at all. Now both have full reactive + proactive triggers.
+
+## [0.7.0] - 2026-03-18 — YC Office Hours
+
+**`/office-hours` — sit down with a YC partner before you write a line of code.**
+
+Two modes. If you're building a startup, you get six forcing questions distilled from how YC evaluates products: demand reality, status quo, desperate specificity, narrowest wedge, observation & surprise, and future-fit. If you're hacking on a side project, learning to code, or at a hackathon, you get an enthusiastic brainstorming partner who helps you find the coolest version of your idea.
+
+Both modes write a design doc that feeds directly into `/plan-ceo-review` and `/plan-eng-review`. After the session, the skill reflects back what it noticed about how you think — specific observations, not generic praise.
+
+**`/debug` — find the root cause, not the symptom.**
+
+When something is broken and you don't know why, `/debug` is your systematic debugger. It follows the Iron Law: no fixes without root cause investigation first. Traces data flow, matches against known bug patterns (race conditions, nil propagation, stale cache, config drift), and tests hypotheses one at a time. If 3 fixes fail, it stops and questions the architecture instead of thrashing.
+
+## [0.6.4.1] - 2026-03-18
+
+### Added
+
+- **Skills now discoverable via natural language.** All 12 skills that were missing explicit trigger phrases now have them — say "deploy this" and Claude finds `/ship`, say "check my diff" and it finds `/review`. Following Anthropic's best practice: "the description field is not a summary — it's when to trigger."
+
+## [0.6.4.0] - 2026-03-17
+
+### Added
+
+- **`/plan-design-review` is now interactive — rates 0-10, fixes the plan.** Instead of producing a report with letter grades, the designer now works like CEO and Eng review: rates each design dimension 0-10, explains what a 10 looks like, then edits the plan to get there. One AskUserQuestion per design choice. The output is a better plan, not a document about the plan.
+- **CEO review now calls in the designer.** When `/plan-ceo-review` detects UI scope in a plan, it activates a Design & UX section (Section 11) covering information architecture, interaction state coverage, AI slop risk, and responsive intention. For deep design work, it recommends `/plan-design-review`.
+- **14 of 15 skills now have full test coverage (E2E + LLM-judge + validation).** Added LLM-judge quality evals for 10 skills that were missing them: ship, retro, qa-only, plan-ceo-review, plan-eng-review, plan-design-review, design-review, design-consultation, document-release, gstack-upgrade. Added real E2E test for gstack-upgrade (was a `.todo`). Added design-consultation to command validation.
+- **Bisect commit style.** CLAUDE.md now requires every commit to be a single logical change — renames separate from rewrites, test infrastructure separate from test implementations.
+
+### Changed
+
+- `/qa-design-review` renamed to `/design-review` — the "qa-" prefix was confusing now that `/plan-design-review` is plan-mode. Updated across all 22 files.
+
+## [0.6.3.0] - 2026-03-17
+
+### Added
+
+- **Every PR touching frontend code now gets a design review automatically.** `/review` and `/ship` apply a 20-item design checklist against changed CSS, HTML, JSX, and view files. Catches AI slop patterns (purple gradients, 3-column icon grids, generic hero copy), typography issues (body text < 16px, blacklisted fonts), accessibility gaps (`outline: none`), and `!important` abuse. Mechanical CSS fixes are auto-applied; design judgment calls ask you first.
+- **`gstack-diff-scope` categorizes what changed in your branch.** Run `source <(gstack-diff-scope main)` and get `SCOPE_FRONTEND=true/false`, `SCOPE_BACKEND`, `SCOPE_PROMPTS`, `SCOPE_TESTS`, `SCOPE_DOCS`, `SCOPE_CONFIG`. Design review uses it to skip silently on backend-only PRs. Ship pre-flight uses it to recommend design review when frontend files are touched.
+- **Design review shows up in the Review Readiness Dashboard.** The dashboard now distinguishes between "LITE" (code-level, runs automatically in /review and /ship) and "FULL" (visual audit via /plan-design-review with browse binary). Both show up as Design Review entries.
+- **E2E eval for design review detection.** Planted CSS/HTML fixtures with 7 known anti-patterns (Papyrus font, 14px body text, `outline: none`, `!important`, purple gradient, generic hero copy, 3-column feature grid). The eval verifies `/review` catches at least 4 of 7.
+
+## [0.6.2.0] - 2026-03-17
+
+### Added
+
+- **Plan reviews now think like the best in the world.** `/plan-ceo-review` applies 14 cognitive patterns from Bezos (one-way doors, Day 1 proxy skepticism), Grove (paranoid scanning), Munger (inversion), Horowitz (wartime awareness), Chesky/Graham (founder mode), and Altman (leverage obsession). `/plan-eng-review` applies 15 patterns from Larson (team state diagnosis), McKinley (boring by default), Brooks (essential vs accidental complexity), Beck (make the change easy), Majors (own your code in production), and Google SRE (error budgets). `/plan-design-review` applies 12 patterns from Rams (subtraction default), Norman (time-horizon design), Zhuo (principled taste), Gebbia (design for trust, storyboard the journey), and Ive (care is visible).
+- **Latent space activation, not checklists.** The cognitive patterns name-drop frameworks and people so the LLM draws on its deep knowledge of how they actually think. The instruction is "internalize these, don't enumerate them" — making each review a genuine perspective shift, not a longer checklist.
+
+## [0.6.1.0] - 2026-03-17
+
+### Added
+
+- **E2E and LLM-judge tests now only run what you changed.** Each test declares which source files it depends on. When you run `bun run test:e2e`, it checks your diff and skips tests whose dependencies weren't touched. A branch that only changes `/retro` now runs 2 tests instead of 31. Use `bun run test:e2e:all` to force everything.
+- **`bun run eval:select` previews which tests would run.** See exactly which tests your diff triggers before spending API credits. Supports `--json` for scripting and `--base <branch>` to override the base branch.
+- **Completeness guardrail catches forgotten test entries.** A free unit test validates that every `testName` in the E2E and LLM-judge test files has a corresponding entry in the TOUCHFILES map. New tests without entries fail `bun test` immediately — no silent always-run degradation.
+
+### Changed
+
+- `test:evals` and `test:e2e` now auto-select based on diff (was: all-or-nothing)
+- New `test:evals:all` and `test:e2e:all` scripts for explicit full runs
+
+## 0.6.1 — 2026-03-17 — Boil the Lake
+
+Every gstack skill now follows the **Completeness Principle**: always recommend the
+full implementation when AI makes the marginal cost near-zero. No more "Choose B
+because it's 90% of the value" when option A is 70 lines more code.
+
+Read the philosophy: https://garryslist.org/posts/boil-the-ocean
+
+- **Completeness scoring**: every AskUserQuestion option now shows a completeness
+  score (1-10), biasing toward the complete solution
+- **Dual time estimates**: effort estimates show both human-team and CC+gstack time
+  (e.g., "human: ~2 weeks / CC: ~1 hour") with a task-type compression reference table
+- **Anti-pattern examples**: concrete "don't do this" gallery in the preamble so the
+  principle isn't abstract
+- **First-time onboarding**: new users see a one-time introduction linking to the
+  essay, with option to open in browser
+- **Review completeness gaps**: `/review` now flags shortcut implementations where the
+  complete version costs <30 min CC time
+- **Lake Score**: CEO and Eng review completion summaries show how many recommendations
+  chose the complete option vs shortcuts
+- **CEO + Eng review dual-time**: temporal interrogation, effort estimates, and delight
+  opportunities all show both human and CC time scales
 
 ## 0.6.0.1 — 2026-03-17
 
-- **`/gstack-upgrade` vendored 동기화 강화.** 전역 설치와 프로젝트 vendored 복사본 버전 불일치를 자동 감지/동기화합니다.
-- **업그레이드 안전성 강화.** vendored 동기화 중 `./setup` 실패 시 백업에서 자동 복원합니다.
+- **`/gstack-upgrade` now catches stale vendored copies automatically.** If your global gstack is up to date but the vendored copy in your project is behind, `/gstack-upgrade` detects the mismatch and syncs it. No more manually asking "did we vendor it?" — it just tells you and offers to update.
+- **Upgrade sync is safer.** If `./setup` fails while syncing a vendored copy, gstack restores the previous version from backup instead of leaving a broken install.
+
+### For contributors
+
+- Standalone usage section in `gstack-upgrade/SKILL.md.tmpl` now references Steps 2 and 4.5 (DRY) instead of duplicating detection/sync bash blocks. Added one new version-comparison bash block.
+- Update check fallback in standalone mode now matches the preamble pattern (global path → local path → `|| true`).
 
 ## 0.6.0 — 2026-03-17
 
-- **테스트 부트스트랩 강화.** 테스트 프레임워크가 없는 프로젝트에서 초기 테스트/구성을 자동 제안하고, QA/ship/retro 흐름에서 테스트 가시성을 강화했습니다.
-- **회귀 테스트 루프 강화.** `/qa` 및 디자인 수정 루프에서 수정사항 재발 방지 테스트를 생성/추적하는 흐름이 보강되었습니다.
+- **100% test coverage is the key to great vibe coding.** gstack now bootstraps test frameworks from scratch when your project doesn't have one. Detects your runtime, researches the best framework, asks you to pick, installs it, writes 3-5 real tests for your actual code, sets up CI/CD (GitHub Actions), creates TESTING.md, and adds test culture instructions to CLAUDE.md. Every Claude Code session after that writes tests naturally.
+- **Every bug fix now gets a regression test.** When `/qa` fixes a bug and verifies it, Phase 8e.5 automatically generates a regression test that catches the exact scenario that broke. Tests include full attribution tracing back to the QA report. Auto-incrementing filenames prevent collisions across sessions.
+- **Ship with confidence — coverage audit shows what's tested and what's not.** `/ship` Step 3.4 builds a code path map from your diff, searches for corresponding tests, and produces an ASCII coverage diagram with quality stars (★★★ = edge cases + errors, ★★ = happy path, ★ = smoke test). Gaps get tests auto-generated. PR body shows "Tests: 42 → 47 (+5 new)".
+- **Your retro tracks test health.** `/retro` now shows total test files, tests added this period, regression test commits, and trend deltas. If test ratio drops below 20%, it flags it as a growth area.
+- **Design reviews generate regression tests too.** `/qa-design-review` Phase 8e.5 skips CSS-only fixes (those are caught by re-running the design audit) but writes tests for JavaScript behavior changes like broken dropdowns or animation failures.
+
+### For contributors
+
+- Added `generateTestBootstrap()` resolver to `gen-skill-docs.ts` (~155 lines). Registered as `{{TEST_BOOTSTRAP}}` in the RESOLVERS map. Inserted into qa, ship (Step 2.5), and qa-design-review templates.
+- Phase 8e.5 regression test generation added to `qa/SKILL.md.tmpl` (46 lines) and CSS-aware variant to `qa-design-review/SKILL.md.tmpl` (12 lines). Rule 13 amended to allow creating new test files.
+- Step 3.4 test coverage audit added to `ship/SKILL.md.tmpl` (88 lines) with quality scoring rubric and ASCII diagram format.
+- Test health tracking added to `retro/SKILL.md.tmpl`: 3 new data gathering commands, metrics row, narrative section, JSON schema field.
+- `qa-only/SKILL.md.tmpl` gets recommendation note when no test framework detected.
+- `qa-report-template.md` gains Regression Tests section with deferred test specs.
+- ARCHITECTURE.md placeholder table updated with `{{TEST_BOOTSTRAP}}` and `{{REVIEW_DASHBOARD}}`.
+- WebSearch added to allowed-tools for qa, ship, qa-design-review.
+- 26 new validation tests, 2 new E2E evals (bootstrap + coverage audit).
+- 2 new P3 TODOs: CI/CD for non-GitHub providers, auto-upgrade weak tests.
 
 ## 0.5.4 — 2026-03-17
 
-- **`/plan-eng-review` 항상 풀 모드.** small/big 선택 메뉴를 제거하고, 전체 엔지니어링 리뷰를 기본으로 수행합니다.
-- **`/ship` 리뷰 게이트 응답 기억.** 같은 브랜치에서 리뷰 게이트 질문을 반복하지 않도록 override를 저장합니다.
+- **Engineering review is always the full review now.** `/plan-eng-review` no longer asks you to choose between "big change" and "small change" modes. Every plan gets the full interactive walkthrough (architecture, code quality, tests, performance). Scope reduction is only suggested when the complexity check actually triggers — not as a standing menu option.
+- **Ship stops asking about reviews once you've answered.** When `/ship` asks about missing reviews and you say "ship anyway" or "not relevant," that decision is saved for the branch. No more getting re-asked every time you re-run `/ship` after a pre-landing fix.
+
+### For contributors
+
+- Removed SMALL_CHANGE / BIG_CHANGE / SCOPE_REDUCTION menu from `plan-eng-review/SKILL.md.tmpl`. Scope reduction is now proactive (triggered by complexity check) rather than a menu item.
+- Added review gate override persistence to `ship/SKILL.md.tmpl` — writes `ship-review-override` entries to `$BRANCH-reviews.jsonl` so subsequent `/ship` runs skip the gate.
+- Updated 2 E2E test prompts to match new flow.
 
 ## 0.5.3 — 2026-03-17
 
-- **CEO 리뷰 선택 확장 모드.** SELECTIVE EXPANSION 모드가 추가되어 범위를 유지한 채 확장안을 항목별로 채택/거절할 수 있습니다.
-- **Ship 게이트 맥락화.** CEO/Design 리뷰를 조건부 권장으로 조정하고, 상황에 맞는 게이트만 강조합니다.
+- **You're always in control — even when dreaming big.** `/plan-ceo-review` now presents every scope expansion as an individual decision you opt into. EXPANSION mode recommends enthusiastically, but you say yes or no to each idea. No more "the agent went wild and added 5 features I didn't ask for."
+- **New mode: SELECTIVE EXPANSION.** Hold your current scope as the baseline, but see what else is possible. The agent surfaces expansion opportunities one by one with neutral recommendations — you cherry-pick the ones worth doing. Perfect for iterating on existing features where you want rigor but also want to be tempted by adjacent improvements.
+- **Your CEO review visions are saved, not lost.** Expansion ideas, cherry-pick decisions, and 10x visions are now persisted to `~/.gstack/projects/{repo}/ceo-plans/` as structured design documents. Stale plans get archived automatically. If a vision is exceptional, you can promote it to `docs/designs/` in your repo for the team.
+
+- **Smarter ship gates.** `/ship` no longer nags you about CEO and Design reviews when they're not relevant. Eng Review is the only required gate (and you can disable even that with `gstack-config set skip_eng_review true`). CEO Review is recommended for big product changes; Design Review for UI work. The dashboard still shows all three — it just won't block you for the optional ones.
+
+### For contributors
+
+- Added SELECTIVE EXPANSION mode to `plan-ceo-review/SKILL.md.tmpl` with cherry-pick ceremony, neutral recommendation posture, and HOLD SCOPE baseline.
+- Rewrote EXPANSION mode's Step 0D to include opt-in ceremony — distill vision into discrete proposals, present each as AskUserQuestion.
+- Added CEO plan persistence (0D-POST step): structured markdown with YAML frontmatter (`status: ACTIVE/ARCHIVED/PROMOTED`), scope decisions table, archival flow.
+- Added `docs/designs` promotion step after Review Log.
+- Mode Quick Reference table expanded to 4 columns.
+- Review Readiness Dashboard: Eng Review required (overridable via `skip_eng_review` config), CEO/Design optional with agent judgment.
+- New tests: CEO review mode validation (4 modes, persistence, promotion), SELECTIVE EXPANSION E2E test.
 
 ## 0.5.2 — 2026-03-17
 
-- **디자인 컨설팅 강화.** SAFE 선택지와 RISK 선택지를 분리 제시하고, 실제 레퍼런스 조사 기반으로 디자인 제안을 고도화했습니다.
+- **Your design consultant now takes creative risks.** `/design-consultation` doesn't just propose a safe, coherent system — it explicitly breaks down SAFE CHOICES (category baseline) vs. RISKS (where your product stands out). You pick which rules to break. Every risk comes with a rationale for why it works and what it costs.
+- **See the landscape before you choose.** When you opt into research, the agent browses real sites in your space with screenshots and accessibility tree analysis — not just web search results. You see what's out there before making design decisions.
+- **Preview pages that look like your product.** The preview page now renders realistic product mockups — dashboards with sidebar nav and data tables, marketing pages with hero sections, settings pages with forms — not just font swatches and color palettes.
 
 ## 0.5.1 — 2026-03-17
+- **Know where you stand before you ship.** Every `/plan-ceo-review`, `/plan-eng-review`, and `/plan-design-review` now logs its result to a review tracker. At the end of each review, you see a **Review Readiness Dashboard** showing which reviews are done, when they ran, and whether they're clean — with a clear CLEARED TO SHIP or NOT READY verdict.
+- **`/ship` checks your reviews before creating the PR.** Pre-flight now reads the dashboard and asks if you want to continue when reviews are missing. Informational only — it won't block you, but you'll know what you skipped.
+- **One less thing to copy-paste.** The SLUG computation (that opaque sed pipeline for computing `owner-repo` from git remote) is now a shared `bin/gstack-slug` helper. All 14 inline copies across templates replaced with `source <(gstack-slug)`. If the format ever changes, fix it once.
+- **Screenshots are now visible during QA and browse sessions.** When gstack takes screenshots, they now show up as clickable image elements in your output — no more invisible `/tmp/browse-screenshot.png` paths you can't see. Works in `/qa`, `/qa-only`, `/plan-design-review`, `/qa-design-review`, `/browse`, and `/gstack`.
 
-- **Review Readiness Dashboard + 슬러그 헬퍼 추가.** 리뷰 준비 상태 가시성과 프로젝트 식별 흐름이 강화되었습니다.
+### For contributors
+
+- Added `{{REVIEW_DASHBOARD}}` resolver to `gen-skill-docs.ts` — shared dashboard reader injected into 4 templates (3 review skills + ship).
+- Added `bin/gstack-slug` helper (5-line bash) with unit tests. Outputs `SLUG=` and `BRANCH=` lines, sanitizes `/` to `-`.
+- New TODOs: smart review relevance detection (P3), `/merge` skill for review-gated PR merge (P2).
 
 ## 0.5.0 — 2026-03-16
 
-- **이제 사이트의 디자인 리뷰를 받을 수 있습니다.** `/plan-design-review`는 사이트를 열고 시니어 제품 디자이너처럼 검토합니다 — 타이포그래피, 간격, 계층 구조, 색상, 반응형, 인터랙션, AI 양산 디자인 감지. 카테고리별 등급(A-F), "디자인 점수"와 "AI 양산 점수"로 구성된 이중 헤드라인, 그리고 직설적인 첫인상 리포트를 제공합니다.
-- **발견한 문제를 직접 수정할 수도 있습니다.** `/design-review`는 동일한 디자이너 시각의 감사를 실행한 후, `style(design):` 커밋과 수정 전후 스크린샷을 통해 디자인 이슈를 반복적으로 수정합니다. 기본적으로 CSS-safe 모드로 동작하며, 스타일 변경에 최적화된 엄격한 자기 규제 휴리스틱을 적용합니다.
-- **실제 디자인 시스템을 파악할 수 있습니다.** 두 스킬 모두 JS를 통해 라이브 사이트의 폰트, 색상, 헤딩 크기 체계, 간격 패턴을 추출합니다 — 그리고 추론된 시스템을 `DESIGN.md` 기준선으로 저장하는 것을 제안합니다. 이제 실제로 몇 가지 폰트를 사용하고 있는지 알 수 있습니다.
-- **AI 양산 감지가 핵심 지표입니다.** 모든 리포트는 두 가지 점수로 시작합니다: 디자인 점수와 AI 양산 점수. AI 양산 체크리스트는 가장 흔한 AI 생성 패턴 10가지를 잡아냅니다 — 3열 기능 그리드, 보라색 그래디언트, 장식용 블롭, 이모지 불릿, 진부한 히어로 문구.
-- **디자인 회귀 추적.** 리포트는 `design-baseline.json`을 생성합니다. 다음 실행에서는 자동으로 비교합니다: 카테고리별 등급 변화, 새로 발견된 문제, 해결된 문제. 디자인 점수가 개선되는 과정을 추적할 수 있습니다.
-- **10개 카테고리에 걸친 80개 항목 디자인 감사 체크리스트**: 시각적 계층 구조, 타이포그래피, 색상/대비, 간격/레이아웃, 인터랙션 상태, 반응형, 모션, 콘텐츠/마이크로카피, AI 양산, 퍼포먼스-as-디자인. Vercel의 100개 이상 규칙, Anthropic의 프론트엔드 디자인 스킬, 그리고 6개의 다른 디자인 프레임워크에서 추출했습니다.
+- **Your site just got a design review.** `/plan-design-review` opens your site and reviews it like a senior product designer — typography, spacing, hierarchy, color, responsive, interactions, and AI slop detection. Get letter grades (A-F) per category, a dual headline "Design Score" + "AI Slop Score", and a structured first impression that doesn't pull punches.
+- **It can fix what it finds, too.** `/qa-design-review` runs the same designer's eye audit, then iteratively fixes design issues in your source code with atomic `style(design):` commits and before/after screenshots. CSS-safe by default, with a stricter self-regulation heuristic tuned for styling changes.
+- **Know your actual design system.** Both skills extract your live site's fonts, colors, heading scale, and spacing patterns via JS — then offer to save the inferred system as a `DESIGN.md` baseline. Finally know how many fonts you're actually using.
+- **AI Slop detection is a headline metric.** Every report opens with two scores: Design Score and AI Slop Score. The AI slop checklist catches the 10 most recognizable AI-generated patterns — the 3-column feature grid, purple gradients, decorative blobs, emoji bullets, generic hero copy.
+- **Design regression tracking.** Reports write a `design-baseline.json`. Next run auto-compares: per-category grade deltas, new findings, resolved findings. Watch your design score improve over time.
+- **80-item design audit checklist** across 10 categories: visual hierarchy, typography, color/contrast, spacing/layout, interaction states, responsive, motion, content/microcopy, AI slop, and performance-as-design. Distilled from Vercel's 100+ rules, Anthropic's frontend design skill, and 6 other design frameworks.
 
-### 기여자를 위한 내용
+### For contributors
 
-- `gen-skill-docs.ts`에 `{{DESIGN_METHODOLOGY}}` 리졸버 추가 — `/plan-design-review`와 `/design-review` 템플릿 양쪽에 공유 디자인 감사 방법론을 주입합니다. `{{QA_METHODOLOGY}}` 패턴을 따릅니다.
-- `~/.gstack-dev/plans/`를 장기 비전 문서용 로컬 플랜 디렉토리로 추가 (체크인하지 않음). CLAUDE.md와 TODOS.md 업데이트됨.
-- TODOS.md에 `/setup-design-md` 추가 (P2): 처음부터 대화형 DESIGN.md 생성.
+- Added `{{DESIGN_METHODOLOGY}}` resolver to `gen-skill-docs.ts` — shared design audit methodology injected into both `/plan-design-review` and `/qa-design-review` templates, following the `{{QA_METHODOLOGY}}` pattern.
+- Added `~/.gstack-dev/plans/` as a local plans directory for long-range vision docs (not checked in). CLAUDE.md and TODOS.md updated.
+- Added `/setup-design-md` to TODOS.md (P2) for interactive DESIGN.md creation from scratch.
 
 ## 0.4.5 — 2026-03-16
 
-- **이제 리뷰 발견사항이 목록에만 나열되지 않고 실제로 수정됩니다.** `/review`와 `/ship`은 이전에 정보성 발견사항(데드 코드, 테스트 공백, N+1 쿼리)을 출력하고 무시했습니다. 이제 모든 발견사항이 조치됩니다: 명백한 기계적 수정은 자동으로 적용되고, 진짜 모호한 문제는 8개의 개별 질문 대신 하나의 질문으로 묶입니다. 자동 수정된 항목마다 `[AUTO-FIXED] 파일:라인 문제 → 처리 내용`이 표시됩니다.
-- **"그냥 수정"과 "먼저 물어봐"의 경계를 직접 제어할 수 있습니다.** 데드 코드, 오래된 주석, N+1 쿼리는 자동 수정됩니다. 보안 이슈, 경쟁 조건, 설계 결정은 판단을 위해 표면화됩니다. 분류 기준이 한 곳(`review/checklist.md`)에 있어서 `/review`와 `/ship` 양쪽이 동기화됩니다.
+- **Review findings now actually get fixed, not just listed.** `/review` and `/ship` used to print informational findings (dead code, test gaps, N+1 queries) and then ignore them. Now every finding gets action: obvious mechanical fixes are applied automatically, and genuinely ambiguous issues are batched into a single question instead of 8 separate prompts. You see `[AUTO-FIXED] file:line Problem → what was done` for each auto-fix.
+- **You control the line between "just fix it" and "ask me first."** Dead code, stale comments, N+1 queries get auto-fixed. Security issues, race conditions, design decisions get surfaced for your call. The classification lives in one place (`review/checklist.md`) so both `/review` and `/ship` stay in sync.
 
-### 수정된 문제
+### Fixed
 
-- **`$B js "const x = await fetch(...); return x.status"`가 이제 동작합니다.** `js` 커맨드가 모든 것을 표현식으로 감쌌기 때문에 `const`, 세미콜론, 멀티라인 코드가 모두 오류가 났습니다. 이제 구문을 감지하고 `eval`처럼 블록 래퍼를 사용합니다.
-- **드롭다운 옵션 클릭이 더 이상 영원히 멈추지 않습니다.** 에이전트가 스냅샷에서 `@e3 [option] "Admin"`을 보고 `click @e3`을 실행하면, gstack이 이제 해당 옵션을 자동 선택합니다 — Playwright 클릭이 불가능한 상황에 멈추지 않습니다.
-- **클릭이 잘못된 도구일 때 gstack이 알려줍니다.** CSS 선택자로 `<option>`을 클릭하면 이전에는 알 수 없는 Playwright 오류로 타임아웃됐습니다. 이제 다음과 같이 안내합니다: `"드롭다운 옵션에는 'click' 대신 'browse select'를 사용하세요."`
+- **`$B js "const x = await fetch(...); return x.status"` now works.** The `js` command used to wrap everything as an expression — so `const`, semicolons, and multi-line code all broke. It now detects statements and uses a block wrapper, just like `eval` already did.
+- **Clicking a dropdown option no longer hangs forever.** If an agent sees `@e3 [option] "Admin"` in a snapshot and runs `click @e3`, gstack now auto-selects that option instead of hanging on an impossible Playwright click. The right thing just happens.
+- **When click is the wrong tool, gstack tells you.** Clicking an `<option>` via CSS selector used to time out with a cryptic Playwright error. Now you get: `"Use 'browse select' instead of 'click' for dropdown options."`
 
-### 기여자를 위한 내용
+### For contributors
 
-- Gate Classification → Severity Classification 이름 변경 (severity는 표시 순서를 결정하며, 프롬프트 표시 여부를 결정하지 않음).
-- `review/checklist.md`에 Fix-First Heuristic 섹션 추가 — AUTO-FIX vs ASK 분류의 정규 기준.
-- 새 유효성 검사 테스트: `Fix-First Heuristic이 checklist에 존재하고 review + ship에서 참조됨`.
-- `read-commands.ts`에서 `needsBlockWrapper()`와 `wrapForEvaluate()` 헬퍼 추출 — `js`와 `eval` 커맨드 양쪽에서 공유 (DRY).
-- `BrowserManager`에 `getRefRole()` 추가 — `resolveRef` 반환 타입을 변경하지 않고 ref 선택자의 ARIA 역할을 노출.
-- 클릭 핸들러가 `[role=option]` ref를 DOM `tagName` 확인을 통해 부모 `<select>`의 `selectOption()`으로 자동 라우팅 — 커스텀 listbox 컴포넌트를 막지 않도록.
-- 새 테스트 6개: 멀티라인 js, 세미콜론, 구문 키워드, 단순 표현식, option 자동 라우팅, CSS option 오류 안내.
+- Gate Classification → Severity Classification rename (severity determines presentation order, not whether you see a prompt).
+- Fix-First Heuristic section added to `review/checklist.md` — the canonical AUTO-FIX vs ASK classification.
+- New validation test: `Fix-First Heuristic exists in checklist and is referenced by review + ship`.
+- Extracted `needsBlockWrapper()` and `wrapForEvaluate()` helpers in `read-commands.ts` — shared by both `js` and `eval` commands (DRY).
+- Added `getRefRole()` to `BrowserManager` — exposes ARIA role for ref selectors without changing `resolveRef` return type.
+- Click handler auto-routes `[role=option]` refs to `selectOption()` via parent `<select>`, with DOM `tagName` check to avoid blocking custom listbox components.
+- 6 new tests: multi-line js, semicolons, statement keywords, simple expressions, option auto-routing, CSS option error guidance.
 
 ## 0.4.4 — 2026-03-16
 
-- **새 릴리스가 반나절이 아닌 한 시간 안에 감지됩니다.** 업데이트 확인 캐시가 12시간으로 설정되어 있어 하루 종일 구버전에 머물 수 있었습니다. 이제 "최신 버전입니다"는 60분 후 만료되어 한 시간 내에 업그레이드를 확인하게 됩니다. "업그레이드 가능"은 12시간 동안 알림을 유지합니다 (그것이 목적이므로).
-- **`/gstack-upgrade`는 항상 실제로 확인합니다.** `/gstack-upgrade`를 직접 실행하면 이제 캐시를 우회하여 GitHub에 새로 확인합니다. 더 이상 이미 최신 버전인데 "이미 최신 버전입니다"가 나오지 않습니다.
+- **New releases detected in under an hour, not half a day.** The update check cache was set to 12 hours, which meant you could be stuck on an old version all day while new releases dropped. Now "you're up to date" expires after 60 minutes, so you'll see upgrades within the hour. "Upgrade available" still nags for 12 hours (that's the point).
+- **`/gstack-upgrade` always checks for real.** Running `/gstack-upgrade` directly now bypasses the cache and does a fresh check against GitHub. No more "you're already on the latest" when you're not.
 
-### 기여자를 위한 내용
+### For contributors
 
-- `last-update-check` 캐시 TTL 분리: `UP_TO_DATE`는 60분, `UPGRADE_AVAILABLE`은 720분.
-- `bin/gstack-update-check`에 `--force` 플래그 추가 (확인 전 캐시 파일 삭제).
-- 새 테스트 3개: `--force`가 UP_TO_DATE 캐시를 무효화, `--force`가 UPGRADE_AVAILABLE 캐시를 무효화, `utimesSync`를 이용한 60분 TTL 경계 테스트.
+- Split `last-update-check` cache TTL: 60 min for `UP_TO_DATE`, 720 min for `UPGRADE_AVAILABLE`.
+- Added `--force` flag to `bin/gstack-update-check` (deletes cache file before checking).
+- 3 new tests: `--force` busts UP_TO_DATE cache, `--force` busts UPGRADE_AVAILABLE cache, 60-min TTL boundary test with `utimesSync`.
 
 ## 0.4.3 — 2026-03-16
 
-- **새 `/document-release` 스킬.** `/ship` 실행 후, merge 전에 실행하세요 — 프로젝트의 모든 문서 파일을 읽고, diff와 교차 참조하여, README, ARCHITECTURE, CONTRIBUTING, CHANGELOG, TODOS를 실제 배포 내용과 일치하도록 업데이트합니다. 위험한 변경사항은 질문으로 표면화되고, 나머지는 자동입니다.
-- **이제 모든 질문이 항상 명확합니다.** 이전에는 gstack이 충분한 컨텍스트와 평이한 영어 설명을 제공하기까지 3회 이상의 세션이 필요했습니다. 이제 모든 질문 — 단일 세션에서도 — 이 프로젝트, 브랜치, 진행 상황을 컨텍스트 전환 중에도 이해할 수 있을 만큼 간단하게 설명합니다. 더 이상 "더 쉽게 설명해줘"가 필요 없습니다.
-- **브랜치 이름이 항상 정확합니다.** gstack이 대화 시작 시점의 스냅샷에 의존하는 대신 런타임에 현재 브랜치를 감지합니다. 세션 중간에 브랜치를 변경해도 gstack이 따라갑니다.
+- **New `/document-release` skill.** Run it after `/ship` but before merging — it reads every doc file in your project, cross-references the diff, and updates README, ARCHITECTURE, CONTRIBUTING, CHANGELOG, and TODOS to match what you actually shipped. Risky changes get surfaced as questions; everything else is automatic.
+- **Every question is now crystal clear, every time.** You used to need 3+ sessions running before gstack would give you full context and plain English explanations. Now every question — even in a single session — tells you the project, branch, and what's happening, explained simply enough to understand mid-context-switch. No more "sorry, explain it to me more simply."
+- **Branch name is always correct.** gstack now detects your current branch at runtime instead of relying on the snapshot from when the conversation started. Switch branches mid-session? gstack keeps up.
 
-### 기여자를 위한 내용
+### For contributors
 
-- ELI16 규칙을 기본 AskUserQuestion 형식에 병합 — `_SESSIONS >= 3` 조건부 없이 두 형식 대신 하나.
-- preamble bash 블록에 `_BRANCH` 감지 추가 (`git branch --show-current`와 fallback).
-- 브랜치 감지 및 단순화 규칙에 대한 회귀 방지 테스트 추가.
+- Merged ELI16 rules into base AskUserQuestion format — one format instead of two, no `_SESSIONS >= 3` conditional.
+- Added `_BRANCH` detection to preamble bash block (`git branch --show-current` with fallback).
+- Added regression guard tests for branch detection and simplification rules.
 
 ## 0.4.2 — 2026-03-16
 
-- **`$B js "await fetch(...)"` 이 이제 그냥 동작합니다.** `$B js` 또는 `$B eval`의 모든 `await` 표현식이 자동으로 async 컨텍스트로 감싸집니다. 더 이상 `SyntaxError: await은 async 함수 내에서만 유효합니다`가 발생하지 않습니다. 단일 라인 eval 파일은 값을 직접 반환하고, 멀티라인 파일은 명시적 `return`을 사용합니다.
-- **기여자 모드가 이제 반응만 하지 않고 성찰합니다.** 무언가 깨질 때만 보고서를 작성하는 대신, 기여자 모드는 이제 주기적인 성찰을 유도합니다: "gstack 경험을 0-10으로 평가해보세요. 10이 아니라면 왜 그런지 생각해보세요." 수동 감지로는 놓치는 사용성 문제와 마찰을 잡아냅니다. 보고서에는 이제 0-10 평가와 "이것을 10으로 만들려면 무엇이 필요한가"가 포함됩니다.
-- **스킬이 이제 브랜치 타겟을 존중합니다.** `/ship`, `/review`, `/qa`, `/plan-ceo-review`가 `main`을 가정하는 대신 PR이 실제로 타겟하는 브랜치를 감지합니다. 스택된 브랜치, feature 브랜치를 타겟하는 Conductor 워크스페이스, `master`를 사용하는 저장소 모두 이제 그냥 동작합니다.
-- **`/retro`가 모든 기본 브랜치에서 동작합니다.** `master`, `develop`, 또는 다른 기본 브랜치 이름을 사용하는 저장소가 자동으로 감지됩니다 — 더 이상 브랜치 이름이 달라 빈 회고가 나오지 않습니다.
-- **새로운 `{{BASE_BRANCH_DETECT}}` 플레이스홀더** — 스킬 작성자용. 어느 템플릿에도 추가하면 3단계 브랜치 감지 (PR 기준 → 저장소 기본값 → fallback)를 무료로 얻을 수 있습니다.
-- **3개의 새로운 E2E 스모크 테스트**가 ship, review, retro 스킬에서 기준 브랜치 감지가 종단간 동작하는지 검증합니다.
+- **`$B js "await fetch(...)"` now just works.** Any `await` expression in `$B js` or `$B eval` is automatically wrapped in an async context. No more `SyntaxError: await is only valid in async functions`. Single-line eval files return values directly; multi-line files use explicit `return`.
+- **Contributor mode now reflects, not just reacts.** Instead of only filing reports when something breaks, contributor mode now prompts periodic reflection: "Rate your gstack experience 0-10. Not a 10? Think about why." Catches quality-of-life issues and friction that passive detection misses. Reports now include a 0-10 rating and "What would make this a 10" to focus on actionable improvements.
+- **Skills now respect your branch target.** `/ship`, `/review`, `/qa`, and `/plan-ceo-review` detect which branch your PR actually targets instead of assuming `main`. Stacked branches, Conductor workspaces targeting feature branches, and repos using `master` all just work now.
+- **`/retro` works on any default branch.** Repos using `master`, `develop`, or other default branch names are detected automatically — no more empty retros because the branch name was wrong.
+- **New `{{BASE_BRANCH_DETECT}}` placeholder** for skill authors — drop it into any template and get 3-step branch detection (PR base → repo default → fallback) for free.
+- **3 new E2E smoke tests** validate base branch detection works end-to-end across ship, review, and retro skills.
 
-### 기여자를 위한 내용
+### For contributors
 
-- `// await`에 대한 오탐을 방지하기 위한 주석 제거를 포함한 `hasAwait()` 헬퍼 추가.
-- 스마트 eval 래핑: 단일 라인 → 표현식 `(...)`, 멀티라인 → 명시적 `return`이 있는 블록 `{...}`.
-- async 래핑 단위 테스트 6개, 기여자 모드 preamble 유효성 검사 테스트 40개 추가.
-- 보정 예시를 역사적("이전에 실패했음")으로 프레임화하여 수정 후 라이브 버그가 있음을 암시하지 않도록.
-- CLAUDE.md에 "SKILL 템플릿 작성" 섹션 추가 — bash 표현 대신 자연어, 동적 브랜치 감지, 자체 포함 코드 블록에 대한 규칙.
-- Hardcoded-main 회귀 테스트가 모든 `.tmpl` 파일에서 하드코딩된 `main`이 있는 git 커맨드를 검사.
-- QA 템플릿 정리: `REPORT_DIR` 쉘 변수 제거, 포트 감지를 산문으로 단순화.
-- gstack-upgrade 템플릿: bash 블록 간 변수 참조에 대한 명시적 교차 단계 산문.
+- Added `hasAwait()` helper with comment-stripping to avoid false positives on `// await` in eval files.
+- Smart eval wrapping: single-line → expression `(...)`, multi-line → block `{...}` with explicit `return`.
+- 6 new async wrapping unit tests, 40 new contributor mode preamble validation tests.
+- Calibration example framed as historical ("used to fail") to avoid implying a live bug post-fix.
+- Added "Writing SKILL templates" section to CLAUDE.md — rules for natural language over bash-isms, dynamic branch detection, self-contained code blocks.
+- Hardcoded-main regression test scans all `.tmpl` files for git commands with hardcoded `main`.
+- QA template cleaned up: removed `REPORT_DIR` shell variable, simplified port detection to prose.
+- gstack-upgrade template: explicit cross-step prose for variable references between bash blocks.
 
 ## 0.4.1 — 2026-03-16
 
-- **gstack이 이제 자신의 실수를 알아챕니다.** 기여자 모드를 켜면(`gstack-config set gstack_contributor true`) gstack이 무엇이 잘못됐는지 자동으로 기록합니다 — 무엇을 하고 있었는지, 무엇이 깨졌는지, 재현 단계. 다음에 무언가 짜증스러우면 버그 리포트는 이미 작성됩니다. gstack을 포크해서 직접 수정하세요.
-- **여러 세션을 동시에 진행 중? gstack이 따라갑니다.** gstack 창을 3개 이상 열고 있을 때, 모든 질문이 이제 어떤 프로젝트, 어떤 브랜치, 무엇을 작업 중인지 알려줍니다. 더 이상 "이게 어느 창이지?"라며 멍하니 바라보지 않아도 됩니다.
-- **이제 모든 질문에 추천이 함께 제공됩니다.** 옵션을 던져놓고 생각하게 만드는 대신, gstack이 무엇을 선택할지와 이유를 알려줍니다. 모든 스킬에 걸쳐 동일한 명확한 형식으로.
-- **`/review`가 이제 잊혀진 enum 핸들러를 찾아냅니다.** 새 상태, 등급, 또는 타입 상수를 추가했나요? `/review`가 변경한 파일뿐만 아니라 코드베이스 전체의 모든 switch 문, allowlist, 필터를 추적합니다 — "값은 추가했지만 처리를 빠뜨린" 류의 버그를 배포 전에 잡아냅니다.
+- **gstack now notices when it screws up.** Turn on contributor mode (`gstack-config set gstack_contributor true`) and gstack automatically writes up what went wrong — what you were doing, what broke, repro steps. Next time something annoys you, the bug report is already written. Fork gstack and fix it yourself.
+- **Juggling multiple sessions? gstack keeps up.** When you have 3+ gstack windows open, every question now tells you which project, which branch, and what you were working on. No more staring at a question thinking "wait, which window is this?"
+- **Every question now comes with a recommendation.** Instead of dumping options on you and making you think, gstack tells you what it would pick and why. Same clear format across every skill.
+- **/review now catches forgotten enum handlers.** Add a new status, tier, or type constant? /review traces it through every switch statement, allowlist, and filter in your codebase — not just the files you changed. Catches the "added the value but forgot to handle it" class of bugs before they ship.
 
-### 기여자를 위한 내용
+### For contributors
 
-- 11개 스킬 템플릿 전체에서 `{{UPDATE_CHECK}}`를 `{{PREAMBLE}}`로 이름 변경 — 이제 하나의 시작 블록이 업데이트 확인, 세션 추적, 기여자 모드, 질문 형식을 처리.
-- plan-ceo-review와 plan-eng-review의 질문 형식을 DRY화 — preamble 기준을 복제하는 대신 참조하도록.
-- CLAUDE.md에 CHANGELOG 스타일 가이드와 vendored symlink 인식 문서 추가.
+- Renamed `{{UPDATE_CHECK}}` to `{{PREAMBLE}}` across all 11 skill templates — one startup block now handles update check, session tracking, contributor mode, and question formatting.
+- DRY'd plan-ceo-review and plan-eng-review question formatting to reference the preamble baseline instead of duplicating rules.
+- Added CHANGELOG style guide and vendored symlink awareness docs to CLAUDE.md.
 
 ## 0.4.0 — 2026-03-16
 
-### 추가된 기능
-- **QA-only 스킬** (`/qa-only`) — 수정 없이 버그를 찾고 문서화하는 리포트 전용 QA 모드. 에이전트가 코드를 건드리지 않고 팀에 깔끔한 버그 리포트를 전달할 수 있습니다.
-- **QA 수정 루프** — `/qa`가 이제 찾기-수정-검증 사이클을 실행합니다: 버그를 발견하고, 수정하고, commit하고, 다시 이동하여 수정이 적용됐는지 확인합니다. 깨진 상태에서 배포까지 하나의 커맨드.
-- **Plan-to-QA 아티팩트 흐름** — `/plan-eng-review`가 테스트 플랜 아티팩트를 작성하면 `/qa`가 자동으로 가져갑니다. 이제 수동 복사 붙여넣기 없이 엔지니어링 리뷰에서 QA 테스트로 바로 연결됩니다.
-- **`{{QA_METHODOLOGY}}` DRY 플레이스홀더** — `/qa`와 `/qa-only` 템플릿 양쪽에 공유 QA 방법론 블록이 주입됩니다. 테스팅 표준을 업데이트하면 두 스킬이 동기화됩니다.
-- **Eval 효율성 지표** — 턴 수, 소요 시간, 비용이 모든 eval 화면에서 자연어 **요약** 코멘트와 함께 표시됩니다. 프롬프트 변경이 에이전트를 빠르게 했는지 느리게 했는지 한눈에 확인하세요.
-- **`generateCommentary()` 엔진** — 비교 델타를 해석하여 직접 분석하지 않아도 됩니다: 회귀를 플래그하고, 개선 사항을 기록하고, 전체 효율성 요약을 생성합니다.
-- **Eval list 열** — `bun run eval:list`가 이제 실행당 턴 수와 소요 시간을 표시합니다. 비싸거나 느린 실행을 즉시 발견하세요.
-- **Eval summary 테스트별 효율성** — `bun run eval:summary`가 실행 간 테스트별 평균 턴/소요 시간/비용을 표시합니다. 어떤 테스트가 시간이 지남에 따라 가장 많은 비용을 쓰는지 파악하세요.
-- **`judgePassed()` 단위 테스트** — 합격/불합격 판단 로직을 추출하고 테스트했습니다.
-- **3개의 새로운 E2E 테스트** — qa-only 수정 금지 가드레일, commit 검증이 있는 qa 수정 루프, plan-eng-review 테스트 플랜 아티팩트.
-- **브라우저 ref 오래됨 감지** — `resolveRef()`가 이제 페이지 변경 후 오래된 ref를 감지하기 위해 엘리먼트 수를 확인합니다. SPA 탐색이 더 이상 누락된 엘리먼트에서 30초 타임아웃을 일으키지 않습니다.
-- ref 오래됨에 대한 새로운 스냅샷 테스트 3개.
+### Added
+- **QA-only skill** (`/qa-only`) — report-only QA mode that finds and documents bugs without making fixes. Hand off a clean bug report to your team without the agent touching your code.
+- **QA fix loop** — `/qa` now runs a find-fix-verify cycle: discover bugs, fix them, commit, re-navigate to confirm the fix took. One command to go from broken to shipped.
+- **Plan-to-QA artifact flow** — `/plan-eng-review` writes test-plan artifacts that `/qa` picks up automatically. Your engineering review now feeds directly into QA testing with no manual copy-paste.
+- **`{{QA_METHODOLOGY}}` DRY placeholder** — shared QA methodology block injected into both `/qa` and `/qa-only` templates. Keeps both skills in sync when you update testing standards.
+- **Eval efficiency metrics** — turns, duration, and cost now displayed across all eval surfaces with natural-language **Takeaway** commentary. See at a glance whether your prompt changes made the agent faster or slower.
+- **`generateCommentary()` engine** — interprets comparison deltas so you don't have to: flags regressions, notes improvements, and produces an overall efficiency summary.
+- **Eval list columns** — `bun run eval:list` now shows Turns and Duration per run. Spot expensive or slow runs instantly.
+- **Eval summary per-test efficiency** — `bun run eval:summary` shows average turns/duration/cost per test across runs. Identify which tests are costing you the most over time.
+- **`judgePassed()` unit tests** — extracted and tested the pass/fail judgment logic.
+- **3 new E2E tests** — qa-only no-fix guardrail, qa fix loop with commit verification, plan-eng-review test-plan artifact.
+- **Browser ref staleness detection** — `resolveRef()` now checks element count to detect stale refs after page mutations. SPA navigation no longer causes 30-second timeouts on missing elements.
+- 3 new snapshot tests for ref staleness.
 
-### 변경 사항
-- QA 스킬 프롬프트가 명시적인 두 사이클 워크플로우(찾기 → 수정 → 검증)로 재구성됨.
-- `formatComparison()`이 비용과 함께 테스트별 턴 수와 소요 시간 델타를 표시.
-- `printSummary()`가 턴 수와 소요 시간 열을 표시.
-- `eval-store.test.ts`에서 기존 `_partial` 파일 어설션 버그 수정.
+### Changed
+- QA skill prompt restructured with explicit two-cycle workflow (find → fix → verify).
+- `formatComparison()` now shows per-test turns and duration deltas alongside cost.
+- `printSummary()` shows turns and duration columns.
+- `eval-store.test.ts` fixed pre-existing `_partial` file assertion bug.
 
-### 수정된 문제
-- 브라우저 ref 오래됨 — 페이지 변경 전에 수집된 ref(예: SPA 탐색)가 이제 감지되어 재수집됩니다. 동적 사이트에서 불안정한 QA 실패의 한 종류가 제거됩니다.
+### Fixed
+- Browser ref staleness — refs collected before page mutation (e.g. SPA navigation) are now detected and re-collected. Eliminates a class of flaky QA failures on dynamic sites.
 
 ## 0.3.9 — 2026-03-15
 
-### 추가된 기능
-- **`bin/gstack-config` CLI** — `~/.gstack/config.yaml`을 위한 간단한 get/set/list 인터페이스. update-check와 upgrade 스킬이 영구 설정에 사용합니다 (auto_upgrade, update_check).
-- **스마트 업데이트 확인** — 12시간 캐시 TTL (기존 24시간), 사용자가 업그레이드를 거절할 때 지수적 스누즈 백오프(24시간 → 48시간 → 1주일), `update_check: false` 설정 옵션으로 확인 완전 비활성화. 새 버전 릴리스 시 스누즈 초기화.
-- **자동 업그레이드 모드** — 설정에서 `auto_upgrade: true` 또는 `GSTACK_AUTO_UPGRADE=1` 환경 변수로 업그레이드 프롬프트를 건너뛰고 자동 업데이트.
-- **4가지 선택지 업그레이드 프롬프트** — "지금 업그레이드", "항상 최신 버전 유지", "나중에" (스누즈), "다시 묻지 않기" (비활성화).
-- **Vendored 복사본 동기화** — `/gstack-upgrade`가 기본 설치를 업그레이드한 후 현재 프로젝트의 로컬 vendored 복사본을 감지하고 업데이트합니다.
-- 새 테스트 25개: gstack-config CLI용 11개, update-check의 스누즈/설정 경로용 14개.
+### Added
+- **`bin/gstack-config` CLI** — simple get/set/list interface for `~/.gstack/config.yaml`. Used by update-check and upgrade skill for persistent settings (auto_upgrade, update_check).
+- **Smart update check** — 12h cache TTL (was 24h), exponential snooze backoff (24h → 48h → 1 week) when user declines upgrades, `update_check: false` config option to disable checks entirely. Snooze resets when a new version is released.
+- **Auto-upgrade mode** — set `auto_upgrade: true` in config or `GSTACK_AUTO_UPGRADE=1` env var to skip the upgrade prompt and update automatically.
+- **4-option upgrade prompt** — "Yes, upgrade now", "Always keep me up to date", "Not now" (snooze), "Never ask again" (disable).
+- **Vendored copy sync** — `/gstack-upgrade` now detects and updates local vendored copies in the current project after upgrading the primary install.
+- 25 new tests: 11 for gstack-config CLI, 14 for snooze/config paths in update-check.
 
-### 변경 사항
-- README 업그레이드/문제 해결 섹션이 긴 붙여넣기 커맨드 대신 `/gstack-upgrade`를 참조하도록 단순화됨.
-- Upgrade 스킬 템플릿이 설정 편집을 위한 `Write` 도구 권한과 함께 v1.1.0으로 업그레이드됨.
-- 모든 SKILL.md preamble이 새 업그레이드 흐름 설명으로 업데이트됨.
+### Changed
+- README upgrade/troubleshooting sections simplified to reference `/gstack-upgrade` instead of long paste commands.
+- Upgrade skill template bumped to v1.1.0 with `Write` tool permission for config editing.
+- All SKILL.md preambles updated with new upgrade flow description.
 
 ## 0.3.8 — 2026-03-14
 
-### 추가된 기능
-- **TODOS.md를 단일 진실의 원천으로** — `TODO.md`(로드맵)와 `TODOS.md`(단기 계획)를 스킬/컴포넌트별로 정리하고 P0-P4 우선순위 및 완료 섹션이 있는 하나의 파일로 병합했습니다.
-- **`/ship` 5.5단계: TODOS.md 관리** — diff에서 완료된 항목을 자동 감지하고, 버전 주석과 함께 완료 표시하고, TODOS.md가 없거나 구조화되지 않은 경우 생성/재구성을 제안합니다.
-- **크로스 스킬 TODOS 인식** — `/plan-ceo-review`, `/plan-eng-review`, `/retro`, `/review`, `/qa`가 이제 프로젝트 컨텍스트를 위해 TODOS.md를 읽습니다. `/retro`는 백로그 건강 지표(미완료 수, P0/P1 항목, 변동률)를 추가합니다.
-- **공유 `review/TODOS-format.md`** — `/ship`과 `/plan-ceo-review`가 형식 불일치를 방지하기 위해 참조하는 정규 TODO 항목 형식 (DRY).
-- **Greptile 2단계 답글 시스템** — 첫 번째 답글에는 Tier 1 (친근하게, 인라인 diff + 설명), Greptile이 이전 답글 후 재플래그할 때는 Tier 2 (단호하게, 완전한 증거 체인 + 재분류 요청).
-- **Greptile 답글 템플릿** — `greptile-triage.md`의 수정(인라인 diff), 이미 수정됨(처리 내용), 오탐(증거 + 재분류 제안)을 위한 구조화된 템플릿. 모호한 한 줄 답글을 대체합니다.
-- **Greptile 에스컬레이션 감지** — 코멘트 스레드에서 이전 GStack 답글을 감지하고 자동으로 Tier 2로 에스컬레이션하는 명시적 알고리즘.
-- **Greptile 심각도 재분류** — Greptile이 이슈 심각도를 잘못 분류할 때 답글에 이제 `**제안된 재분류:**`가 포함됩니다.
-- 스킬 전체에 걸친 `TODOS-format.md` 참조에 대한 정적 유효성 검사 테스트.
+### Added
+- **TODOS.md as single source of truth** — merged `TODO.md` (roadmap) and `TODOS.md` (near-term) into one file organized by skill/component with P0-P4 priority ordering and a Completed section.
+- **`/ship` Step 5.5: TODOS.md management** — auto-detects completed items from the diff, marks them done with version annotations, offers to create/reorganize TODOS.md if missing or unstructured.
+- **Cross-skill TODOS awareness** — `/plan-ceo-review`, `/plan-eng-review`, `/retro`, `/review`, and `/qa` now read TODOS.md for project context. `/retro` adds Backlog Health metric (open counts, P0/P1 items, churn).
+- **Shared `review/TODOS-format.md`** — canonical TODO item format referenced by `/ship` and `/plan-ceo-review` to prevent format drift (DRY).
+- **Greptile 2-tier reply system** — Tier 1 (friendly, inline diff + explanation) for first responses; Tier 2 (firm, full evidence chain + re-rank request) when Greptile re-flags after a prior reply.
+- **Greptile reply templates** — structured templates in `greptile-triage.md` for fixes (inline diff), already-fixed (what was done), and false positives (evidence + suggested re-rank). Replaces vague one-line replies.
+- **Greptile escalation detection** — explicit algorithm to detect prior GStack replies on comment threads and auto-escalate to Tier 2.
+- **Greptile severity re-ranking** — replies now include `**Suggested re-rank:**` when Greptile miscategorizes issue severity.
+- Static validation tests for `TODOS-format.md` references across skills.
 
-### 수정된 문제
-- **`.gitignore` 추가 실패가 자동으로 무시됨** — `ensureStateDir()`의 빈 `catch {}`를 ENOENT 전용 무시로 교체; ENOENT 외 오류(EACCES, ENOSPC)는 `.gstack/browse-server.log`에 기록.
+### Fixed
+- **`.gitignore` append failures silently swallowed** — `ensureStateDir()` bare `catch {}` replaced with ENOENT-only silence; non-ENOENT errors (EACCES, ENOSPC) logged to `.gstack/browse-server.log`.
 
-### 변경 사항
-- `TODO.md` 삭제 — 모든 항목이 `TODOS.md`에 병합됨.
-- `/ship` 3.75단계와 `/review` 5단계가 이제 `greptile-triage.md`의 답글 템플릿과 에스컬레이션 감지를 참조.
-- `/ship` 6단계 commit 순서에 VERSION + CHANGELOG와 함께 마지막 commit에 TODOS.md 포함.
-- `/ship` 8단계 PR 본문에 TODOS 섹션 포함.
+### Changed
+- `TODO.md` deleted — all items merged into `TODOS.md`.
+- `/ship` Step 3.75 and `/review` Step 5 now reference reply templates and escalation detection from `greptile-triage.md`.
+- `/ship` Step 6 commit ordering includes TODOS.md in the final commit alongside VERSION + CHANGELOG.
+- `/ship` Step 8 PR body includes TODOS section.
 
 ## 0.3.7 — 2026-03-14
 
-### 추가된 기능
-- **스크린샷 엘리먼트/영역 클리핑** — `screenshot` 커맨드가 이제 CSS 선택자 또는 @ref를 통한 엘리먼트 크롭(`screenshot "#hero" out.png`, `screenshot @e3 out.png`), 영역 클립(`screenshot --clip x,y,w,h out.png`), 뷰포트 전용 모드(`screenshot --viewport out.png`)를 지원합니다. Playwright의 네이티브 `locator.screenshot()`과 `page.screenshot({ clip })`을 사용합니다. 전체 페이지가 기본값입니다.
-- 모든 스크린샷 모드(뷰포트, CSS, @ref, clip)와 오류 경로(알 수 없는 플래그, 상호 배제, 잘못된 좌표, 경로 유효성 검사, 존재하지 않는 선택자)를 커버하는 새 테스트 10개.
+### Added
+- **Screenshot element/region clipping** — `screenshot` command now supports element crop via CSS selector or @ref (`screenshot "#hero" out.png`, `screenshot @e3 out.png`), region clip (`screenshot --clip x,y,w,h out.png`), and viewport-only mode (`screenshot --viewport out.png`). Uses Playwright's native `locator.screenshot()` and `page.screenshot({ clip })`. Full page remains the default.
+- 10 new tests covering all screenshot modes (viewport, CSS, @ref, clip) and error paths (unknown flag, mutual exclusion, invalid coords, path validation, nonexistent selector).
 
 ## 0.3.6 — 2026-03-14
 
-### 추가된 기능
-- **E2E 관찰 가능성** — 하트비트 파일(`~/.gstack-dev/e2e-live.json`), 실행별 로그 디렉토리(`~/.gstack-dev/e2e-runs/{runId}/`), progress.log, 테스트별 NDJSON 트랜스크립트, 영구 실패 트랜스크립트. 모든 I/O는 치명적이지 않음.
-- **`bun run eval:watch`** — 라이브 터미널 대시보드가 하트비트와 부분 eval 파일을 1초마다 읽습니다. 완료된 테스트, 턴/도구 정보가 있는 현재 테스트, 오래됨 감지(>10분), progress.log용 `--tail` 지원.
-- **증분 eval 저장** — `savePartial()`이 각 테스트 완료 후 `_partial-e2e.json`을 씁니다. 충돌에 안전: 부분 결과가 종료된 실행에서도 살아남습니다. 절대 정리되지 않습니다.
-- **기계 가독성 진단** — eval JSON에 `exit_reason`, `timeout_at_turn`, `last_tool_call` 필드. 자동화된 수정 루프를 위한 `jq` 쿼리를 가능하게 합니다.
-- **API 연결 사전 확인** — E2E 스위트가 테스트 예산을 소모하기 전에 ConnectionRefused에서 즉시 오류를 냅니다.
-- **`is_error` 감지** — `claude -p`가 API 실패 시 `is_error: true`와 함께 `subtype: "success"`를 반환할 수 있습니다. 이제 `error_api`로 올바르게 분류됩니다.
-- **Stream-json NDJSON 파서** — `claude -p --output-format stream-json --verbose`에서 실시간 E2E 진행을 위한 `parseNDJSON()` 순수 함수.
-- **Eval 영속성** — 결과가 자동 비교와 함께 `~/.gstack-dev/evals/`에 저장됩니다.
-- **Eval CLI 도구** — eval 이력 검사를 위한 `eval:list`, `eval:compare`, `eval:summary`.
-- **9개 스킬 모두 `.tmpl` 템플릿으로 변환** — plan-ceo-review, plan-eng-review, retro, review, ship이 이제 `{{UPDATE_CHECK}}` 플레이스홀더를 사용합니다. 업데이트 확인 preamble을 위한 단일 진실의 원천.
-- **3단계 eval 스위트** — Tier 1: 정적 유효성 검사 (무료), Tier 2: `claude -p`를 통한 E2E (~$3.85/실행), Tier 3: LLM-as-judge (~$0.15/실행). `EVALS=1`로 활성화.
-- **심어진 버그 결과 테스트** — 알려진 버그가 있는 eval fixture, LLM judge가 감지 점수를 매깁니다.
-- 하트비트 스키마, progress.log 형식, NDJSON 명명, savePartial, finalize, watcher 렌더링, 오래됨 감지, 치명적이지 않은 I/O를 커버하는 관찰 가능성 단위 테스트 15개.
-- plan-ceo-review, plan-eng-review, retro 스킬에 대한 E2E 테스트.
-- 업데이트 확인 종료 코드 회귀 테스트.
-- `test/helpers/skill-parser.ts` — git remote 감지를 위한 `getRemoteSlug()`.
+### Added
+- **E2E observability** — heartbeat file (`~/.gstack-dev/e2e-live.json`), per-run log directory (`~/.gstack-dev/e2e-runs/{runId}/`), progress.log, per-test NDJSON transcripts, persistent failure transcripts. All I/O non-fatal.
+- **`bun run eval:watch`** — live terminal dashboard reads heartbeat + partial eval file every 1s. Shows completed tests, current test with turn/tool info, stale detection (>10min), `--tail` for progress.log.
+- **Incremental eval saves** — `savePartial()` writes `_partial-e2e.json` after each test completes. Crash-resilient: partial results survive killed runs. Never cleaned up.
+- **Machine-readable diagnostics** — `exit_reason`, `timeout_at_turn`, `last_tool_call` fields in eval JSON. Enables `jq` queries for automated fix loops.
+- **API connectivity pre-check** — E2E suite throws immediately on ConnectionRefused before burning test budget.
+- **`is_error` detection** — `claude -p` can return `subtype: "success"` with `is_error: true` on API failures. Now correctly classified as `error_api`.
+- **Stream-json NDJSON parser** — `parseNDJSON()` pure function for real-time E2E progress from `claude -p --output-format stream-json --verbose`.
+- **Eval persistence** — results saved to `~/.gstack-dev/evals/` with auto-comparison against previous run.
+- **Eval CLI tools** — `eval:list`, `eval:compare`, `eval:summary` for inspecting eval history.
+- **All 9 skills converted to `.tmpl` templates** — plan-ceo-review, plan-eng-review, retro, review, ship now use `{{UPDATE_CHECK}}` placeholder. Single source of truth for update check preamble.
+- **3-tier eval suite** — Tier 1: static validation (free), Tier 2: E2E via `claude -p` (~$3.85/run), Tier 3: LLM-as-judge (~$0.15/run). Gated by `EVALS=1`.
+- **Planted-bug outcome testing** — eval fixtures with known bugs, LLM judge scores detection.
+- 15 observability unit tests covering heartbeat schema, progress.log format, NDJSON naming, savePartial, finalize, watcher rendering, stale detection, non-fatal I/O.
+- E2E tests for plan-ceo-review, plan-eng-review, retro skills.
+- Update-check exit code regression tests.
+- `test/helpers/skill-parser.ts` — `getRemoteSlug()` for git remote detection.
 
-### 수정된 문제
-- **에이전트에 대한 browse 바이너리 검색 실패** — `find-browse` 간접 참조를 SKILL.md 설정 블록의 명시적 `browse/dist/browse` 경로로 교체.
-- **에이전트를 혼란스럽게 하는 업데이트 확인 종료 코드 1** — 업데이트가 없을 때 비정상 종료를 방지하기 위해 `|| true` 추가.
-- **browse/SKILL.md에 설정 블록 누락** — `{{BROWSE_SETUP}}` 플레이스홀더 추가.
-- **plan-ceo-review 타임아웃** — 테스트 디렉토리에서 git 저장소 초기화, 코드베이스 탐색 건너뛰기, 타임아웃을 420초로 증가.
-- 심어진 버그 eval 안정성 — 단순화된 프롬프트, 낮춰진 감지 기준선, max_turns 불안정성에 강인.
+### Fixed
+- **Browse binary discovery broken for agents** — replaced `find-browse` indirection with explicit `browse/dist/browse` path in SKILL.md setup blocks.
+- **Update check exit code 1 misleading agents** — added `|| true` to prevent non-zero exit when no update available.
+- **browse/SKILL.md missing setup block** — added `{{BROWSE_SETUP}}` placeholder.
+- **plan-ceo-review timeout** — init git repo in test dir, skip codebase exploration, bump timeout to 420s.
+- Planted-bug eval reliability — simplified prompts, lowered detection baselines, resilient to max_turns flakes.
 
-### 변경 사항
-- **템플릿 시스템 확장** — `gen-skill-docs.ts`에 `{{UPDATE_CHECK}}`와 `{{BROWSE_SETUP}}` 플레이스홀더. browse를 사용하는 모든 스킬이 단일 진실의 원천에서 생성됨.
-- 14개 커맨드 설명이 특정 인수 형식, 유효한 값, 오류 동작, 반환 타입으로 풍부해짐.
-- 설정 블록이 먼저 워크스페이스 로컬 경로를 확인(개발용), 글로벌 설치로 fallback.
-- LLM eval judge가 Haiku에서 Sonnet 4.6으로 업그레이드됨.
-- `generateHelpText()`가 COMMAND_DESCRIPTIONS에서 자동 생성됨 (손으로 유지하는 도움말 텍스트를 대체).
+### Changed
+- **Template system expanded** — `{{UPDATE_CHECK}}` and `{{BROWSE_SETUP}}` placeholders in `gen-skill-docs.ts`. All browse-using skills generate from single source of truth.
+- Enriched 14 command descriptions with specific arg formats, valid values, error behavior, and return types.
+- Setup block checks workspace-local path first (for development), falls back to global install.
+- LLM eval judge upgraded from Haiku to Sonnet 4.6.
+- `generateHelpText()` auto-generated from COMMAND_DESCRIPTIONS (replaces hand-maintained help text).
 
 ## 0.3.3 — 2026-03-13
 
-### 추가된 기능
-- **SKILL.md 템플릿 시스템** — `{{COMMAND_REFERENCE}}`와 `{{SNAPSHOT_FLAGS}}` 플레이스홀더가 있는 `.tmpl` 파일이 빌드 시 소스 코드에서 자동 생성됩니다. 문서와 코드 간 커맨드 불일치를 구조적으로 방지합니다.
-- **커맨드 레지스트리** (`browse/src/commands.ts`) — 카테고리와 풍부한 설명이 있는 모든 browse 커맨드의 단일 진실의 원천. 부작용 없음, 빌드 스크립트와 테스트에서 안전하게 import 가능.
-- **스냅샷 플래그 메타데이터** (`browse/src/snapshot.ts`의 `SNAPSHOT_FLAGS` 배열) — 메타데이터 기반 파서가 손으로 코딩한 switch/case를 대체합니다. 한 곳에서 플래그를 추가하면 파서, 문서, 테스트가 업데이트됩니다.
-- **Tier 1 정적 유효성 검사** — 43개 테스트: SKILL.md 코드 블록에서 `$B` 커맨드를 파싱하고, 커맨드 레지스트리와 스냅샷 플래그 메타데이터에 대해 유효성 검사
-- **Tier 2 E2E 테스트** Agent SDK를 통해 — 실제 Claude 세션을 생성하고, 스킬을 실행하고, browse 오류를 스캔합니다. `SKILL_E2E=1` 환경 변수로 활성화 (~$0.50/실행)
-- **Tier 3 LLM-as-judge eval** — Haiku가 생성된 문서의 명확성/완성도/실용성을 점수화(임계값 ≥4/5), 손으로 유지하는 기준선에 대한 회귀 테스트. `ANTHROPIC_API_KEY` 필요
-- **`bun run skill:check`** — 모든 스킬, 커맨드 수, 유효성 검사 상태, 템플릿 신선도를 보여주는 건강 대시보드
-- **`bun run dev:skill`** — 템플릿 또는 소스 파일 변경 시 SKILL.md를 재생성하고 유효성 검사하는 감시 모드
-- **CI 워크플로우** (`.github/workflows/skill-docs.yml`) — push/PR 시 `gen:skill-docs` 실행, 생성된 출력이 커밋된 파일과 다르면 실패
-- 수동 재생성을 위한 `bun run gen:skill-docs` 스크립트
-- LLM-as-judge eval을 위한 `bun run test:eval`
-- `test/helpers/skill-parser.ts` — Markdown에서 `$B` 커맨드를 추출하고 유효성 검사
-- `test/helpers/session-runner.ts` — 오류 패턴 스캔 및 트랜스크립트 저장이 있는 Agent SDK 래퍼
-- **ARCHITECTURE.md** — 데몬 모델, 보안, ref 시스템, 로깅, 충돌 복구를 다루는 설계 결정 문서
-- **Conductor 통합** (`conductor.json`) — 워크스페이스 설정/해제를 위한 수명주기 훅
-- **`.env` 전파** — `bin/dev-setup`이 Conductor 워크스페이스로 메인 worktree에서 `.env`를 자동으로 복사
-- API 키 설정을 위한 `.env.example` 템플릿
+### Added
+- **SKILL.md template system** — `.tmpl` files with `{{COMMAND_REFERENCE}}` and `{{SNAPSHOT_FLAGS}}` placeholders, auto-generated from source code at build time. Structurally prevents command drift between docs and code.
+- **Command registry** (`browse/src/commands.ts`) — single source of truth for all browse commands with categories and enriched descriptions. Zero side effects, safe to import from build scripts and tests.
+- **Snapshot flags metadata** (`SNAPSHOT_FLAGS` array in `browse/src/snapshot.ts`) — metadata-driven parser replaces hand-coded switch/case. Adding a flag in one place updates the parser, docs, and tests.
+- **Tier 1 static validation** — 43 tests: parses `$B` commands from SKILL.md code blocks, validates against command registry and snapshot flag metadata
+- **Tier 2 E2E tests** via Agent SDK — spawns real Claude sessions, runs skills, scans for browse errors. Gated by `SKILL_E2E=1` env var (~$0.50/run)
+- **Tier 3 LLM-as-judge evals** — Haiku scores generated docs on clarity/completeness/actionability (threshold ≥4/5), plus regression test vs hand-maintained baseline. Gated by `ANTHROPIC_API_KEY`
+- **`bun run skill:check`** — health dashboard showing all skills, command counts, validation status, template freshness
+- **`bun run dev:skill`** — watch mode that regenerates and validates SKILL.md on every template or source file change
+- **CI workflow** (`.github/workflows/skill-docs.yml`) — runs `gen:skill-docs` on push/PR, fails if generated output differs from committed files
+- `bun run gen:skill-docs` script for manual regeneration
+- `bun run test:eval` for LLM-as-judge evals
+- `test/helpers/skill-parser.ts` — extracts and validates `$B` commands from Markdown
+- `test/helpers/session-runner.ts` — Agent SDK wrapper with error pattern scanning and transcript saving
+- **ARCHITECTURE.md** — design decisions document covering daemon model, security, ref system, logging, crash recovery
+- **Conductor integration** (`conductor.json`) — lifecycle hooks for workspace setup/teardown
+- **`.env` propagation** — `bin/dev-setup` copies `.env` from main worktree into Conductor workspaces automatically
+- `.env.example` template for API key configuration
 
-### 변경 사항
-- 빌드가 이제 바이너리 컴파일 전에 `gen:skill-docs`를 실행
-- `parseSnapshotArgs`가 메타데이터 기반으로 동작 (`SNAPSHOT_FLAGS`를 반복하며 switch/case 대체)
-- `server.ts`가 인라인으로 선언하는 대신 `commands.ts`에서 커맨드 세트를 import
-- SKILL.md와 browse/SKILL.md가 이제 생성된 파일 (`.tmpl`을 편집하세요)
+### Changed
+- Build now runs `gen:skill-docs` before compiling binaries
+- `parseSnapshotArgs` is metadata-driven (iterates `SNAPSHOT_FLAGS` instead of switch/case)
+- `server.ts` imports command sets from `commands.ts` instead of declaring inline
+- SKILL.md and browse/SKILL.md are now generated files (edit the `.tmpl` instead)
 
 ## 0.3.2 — 2026-03-13
 
-### 수정된 문제
-- 쿠키 import 선택기가 이제 HTML 대신 JSON을 반환 — `jsonResponse()`가 스코프 밖의 `url`을 참조하여 모든 API 호출이 충돌했음
-- `help` 커맨드가 올바르게 라우팅됨 (META_COMMANDS 디스패치 순서로 인해 도달 불가능했음)
-- 글로벌 설치의 오래된 서버가 더 이상 로컬 변경사항을 가리지 않음 — `resolveServerScript()`에서 레거시 `~/.claude/skills/gstack` fallback 제거
-- 충돌 로그 경로가 `/tmp/`에서 `.gstack/`으로 업데이트됨
+### Fixed
+- Cookie import picker now returns JSON instead of HTML — `jsonResponse()` referenced `url` out of scope, crashing every API call
+- `help` command routed correctly (was unreachable due to META_COMMANDS dispatch ordering)
+- Stale servers from global install no longer shadow local changes — removed legacy `~/.claude/skills/gstack` fallback from `resolveServerScript()`
+- Crash log path references updated from `/tmp/` to `.gstack/`
 
-### 추가된 기능
-- **Diff 인식 QA 모드** — 기능 브랜치에서 `/qa`가 자동으로 `git diff`를 분석하고, 영향받는 페이지/라우트를 식별하고, localhost에서 실행 중인 앱을 감지하여 변경된 내용만 테스트합니다. URL 불필요.
-- **프로젝트 로컬 browse 상태** — 상태 파일, 로그, 모든 서버 상태가 이제 프로젝트 루트의 `.gstack/` 안에 있습니다(`git rev-parse --show-toplevel`로 감지). 더 이상 `/tmp` 상태 파일이 없습니다.
-- **공유 설정 모듈** (`browse/src/config.ts`) — CLI와 서버의 경로 해결을 중앙화하고, 중복된 포트/상태 로직을 제거합니다
-- **랜덤 포트 선택** — 9400-9409를 스캔하는 대신 서버가 10000-60000 사이의 랜덤 포트를 선택합니다. CONDUCTOR_PORT 마법 오프셋 없음. 워크스페이스 간 포트 충돌 없음.
-- **바이너리 버전 추적** — 상태 파일에 `binaryVersion` SHA 포함; 바이너리가 재빌드될 때 CLI가 자동으로 서버를 재시작
-- **레거시 /tmp 정리** — CLI가 이전 `/tmp/browse-server*.json` 파일을 스캔하고 제거하며, 신호를 보내기 전에 PID 소유권을 검증
-- **Greptile 통합** — `/review`와 `/ship`이 이제 Greptile 봇 코멘트를 가져오고 분류하며; `/retro`가 주간 Greptile 타율을 추적
-- **로컬 개발 모드** — `bin/dev-setup`이 인플레이스 개발을 위해 저장소에서 스킬을 심볼릭 링크; `bin/dev-teardown`이 글로벌 설치를 복원
-- `help` 커맨드 — 에이전트가 모든 커맨드와 스냅샷 플래그를 자체 발견 가능
-- META 신호 프로토콜이 있는 버전 인식 `find-browse` — 오래된 바이너리를 감지하고 에이전트에게 업데이트를 요청
-- git SHA를 origin/main과 비교하는 `browse/dist/find-browse` 컴파일된 바이너리 (4시간 캐시)
-- 빌드 시간에 작성되는 `.version` 파일 (바이너리 버전 추적용)
-- 쿠키 선택기(13개 테스트)와 find-browse 버전 확인(10개 테스트)에 대한 라우트 수준 테스트
-- git 루트 감지, BROWSE_STATE_FILE 오버라이드, ensureStateDir, readVersionHash, resolveServerScript, 버전 불일치 감지를 커버하는 설정 해결 테스트(14개 테스트)
-- CLAUDE.md에 브라우저 상호 작용 안내 — Claude가 `mcp__claude-in-chrome__*` 도구를 사용하지 않도록 방지
-- 빠른 시작, 개발 모드 설명, 다른 저장소에서 브랜치를 테스트하는 지침이 있는 CONTRIBUTING.md
+### Added
+- **Diff-aware QA mode** — `/qa` on a feature branch auto-analyzes `git diff`, identifies affected pages/routes, detects the running app on localhost, and tests only what changed. No URL needed.
+- **Project-local browse state** — state file, logs, and all server state now live in `.gstack/` inside the project root (detected via `git rev-parse --show-toplevel`). No more `/tmp` state files.
+- **Shared config module** (`browse/src/config.ts`) — centralizes path resolution for CLI and server, eliminates duplicated port/state logic
+- **Random port selection** — server picks a random port 10000-60000 instead of scanning 9400-9409. No more CONDUCTOR_PORT magic offset. No more port collisions across workspaces.
+- **Binary version tracking** — state file includes `binaryVersion` SHA; CLI auto-restarts the server when the binary is rebuilt
+- **Legacy /tmp cleanup** — CLI scans for and removes old `/tmp/browse-server*.json` files, verifying PID ownership before sending signals
+- **Greptile integration** — `/review` and `/ship` fetch and triage Greptile bot comments; `/retro` tracks Greptile batting average across weeks
+- **Local dev mode** — `bin/dev-setup` symlinks skills from the repo for in-place development; `bin/dev-teardown` restores global install
+- `help` command — agents can self-discover all commands and snapshot flags
+- Version-aware `find-browse` with META signal protocol — detects stale binaries and prompts agents to update
+- `browse/dist/find-browse` compiled binary with git SHA comparison against origin/main (4hr cached)
+- `.version` file written at build time for binary version tracking
+- Route-level tests for cookie picker (13 tests) and find-browse version check (10 tests)
+- Config resolution tests (14 tests) covering git root detection, BROWSE_STATE_FILE override, ensureStateDir, readVersionHash, resolveServerScript, and version mismatch detection
+- Browser interaction guidance in CLAUDE.md — prevents Claude from using mcp\_\_claude-in-chrome\_\_\* tools
+- CONTRIBUTING.md with quick start, dev mode explanation, and instructions for testing branches in other repos
 
-### 변경 사항
-- 상태 파일 위치: `.gstack/browse.json` (이전: `/tmp/browse-server.json`)
-- 로그 파일 위치: `.gstack/browse-{console,network,dialog}.log` (이전: `/tmp/browse-*.log`)
-- 원자적 상태 파일 쓰기: `.json.tmp` → 이름 변경 (부분 읽기 방지)
-- CLI가 생성된 서버에 `BROWSE_STATE_FILE`을 전달 (서버가 모든 경로를 여기서 파생)
-- SKILL.md 설정이 META 신호를 파싱하고 `META:UPDATE_AVAILABLE`을 처리
-- `/qa` SKILL.md가 diff 인식을 기본값으로 하는 네 가지 모드(diff 인식, full, quick, 회귀)를 설명
-- `jsonResponse`/`errorResponse`가 위치 매개변수 혼동을 방지하기 위해 옵션 객체를 사용
-- 빌드 스크립트가 `browse`와 `find-browse` 바이너리 모두 컴파일, `.bun-build` 임시 파일 정리
-- README가 Greptile 설정 지침, diff 인식 QA 예시, 개정된 데모 트랜스크립트로 업데이트됨
+### Changed
+- State file location: `.gstack/browse.json` (was `/tmp/browse-server.json`)
+- Log files location: `.gstack/browse-{console,network,dialog}.log` (was `/tmp/browse-*.log`)
+- Atomic state file writes: `.json.tmp` → rename (prevents partial reads)
+- CLI passes `BROWSE_STATE_FILE` to spawned server (server derives all paths from it)
+- SKILL.md setup checks parse META signals and handle `META:UPDATE_AVAILABLE`
+- `/qa` SKILL.md now describes four modes (diff-aware, full, quick, regression) with diff-aware as the default on feature branches
+- `jsonResponse`/`errorResponse` use options objects to prevent positional parameter confusion
+- Build script compiles both `browse` and `find-browse` binaries, cleans up `.bun-build` temp files
+- README updated with Greptile setup instructions, diff-aware QA examples, and revised demo transcript
 
-### 제거된 기능
-- `CONDUCTOR_PORT` 마법 오프셋 (`browse_port = CONDUCTOR_PORT - 45600`)
-- 포트 스캔 범위 9400-9409
-- `~/.claude/skills/gstack/browse/src/server.ts`로의 레거시 fallback
-- `DEVELOPING_GSTACK.md` (CONTRIBUTING.md로 이름 변경)
+### Removed
+- `CONDUCTOR_PORT` magic offset (`browse_port = CONDUCTOR_PORT - 45600`)
+- Port scan range 9400-9409
+- Legacy fallback to `~/.claude/skills/gstack/browse/src/server.ts`
+- `DEVELOPING_GSTACK.md` (renamed to CONTRIBUTING.md)
 
 ## 0.3.1 — 2026-03-12
 
-### Phase 3.5: 브라우저 쿠키 import
+### Phase 3.5: Browser cookie import
 
-- `cookie-import-browser` 커맨드 — 실제 Chromium 브라우저(Comet, Chrome, Arc, Brave, Edge)에서 쿠키를 복호화하고 import
-- browse 서버에서 제공하는 대화형 쿠키 선택기 웹 UI (다크 테마, 두 패널 레이아웃, 도메인 검색, import/제거)
-- 비대화형 사용을 위한 `--domain` 플래그로 직접 CLI import
-- Claude Code 통합을 위한 `/setup-browser-cookies` 스킬
-- 비동기 10초 타임아웃이 있는 macOS 키체인 접근 (이벤트 루프 블로킹 없음)
-- 브라우저별 AES 키 캐싱 (세션당 브라우저별 키체인 프롬프트 한 번)
-- DB 잠금 fallback: 안전한 읽기를 위해 잠긴 쿠키 DB를 /tmp에 복사
-- 암호화된 쿠키 fixture가 있는 단위 테스트 18개
+- `cookie-import-browser` command — decrypt and import cookies from real Chromium browsers (Comet, Chrome, Arc, Brave, Edge)
+- Interactive cookie picker web UI served from the browse server (dark theme, two-panel layout, domain search, import/remove)
+- Direct CLI import with `--domain` flag for non-interactive use
+- `/setup-browser-cookies` skill for Claude Code integration
+- macOS Keychain access with async 10s timeout (no event loop blocking)
+- Per-browser AES key caching (one Keychain prompt per browser per session)
+- DB lock fallback: copies locked cookie DB to /tmp for safe reads
+- 18 unit tests with encrypted cookie fixtures
 
 ## 0.3.0 — 2026-03-12
 
-### Phase 3: /qa 스킬 — 체계적인 QA 테스트
+### Phase 3: /qa skill — systematic QA testing
 
-- 6단계 워크플로우(초기화, 인증, 파악, 탐험, 문서화, 마무리)가 있는 새로운 `/qa` 스킬
-- 세 가지 모드: full (체계적, 5-10개 이슈), quick (30초 스모크 테스트), regression (기준선과 비교)
-- 이슈 분류법: 7개 카테고리, 4개 심각도 수준, 페이지별 탐험 체크리스트
-- 7개 카테고리에 걸쳐 가중치 적용된 건강 점수(0-100)가 있는 구조화된 리포트 템플릿
-- Next.js, Rails, WordPress, SPA에 대한 프레임워크 감지 안내
-- `browse/bin/find-browse` — `git rev-parse --show-toplevel`을 사용한 DRY 바이너리 검색
+- New `/qa` skill with 6-phase workflow (Initialize, Authenticate, Orient, Explore, Document, Wrap up)
+- Three modes: full (systematic, 5-10 issues), quick (30-second smoke test), regression (compare against baseline)
+- Issue taxonomy: 7 categories, 4 severity levels, per-page exploration checklist
+- Structured report template with health score (0-100, weighted across 7 categories)
+- Framework detection guidance for Next.js, Rails, WordPress, and SPAs
+- `browse/bin/find-browse` — DRY binary discovery using `git rev-parse --show-toplevel`
 
-### Phase 2: 향상된 브라우저
+### Phase 2: Enhanced browser
 
-- 대화 처리: 자동 수락/거절, 대화 버퍼, 프롬프트 텍스트 지원
-- 파일 업로드: `upload <sel> <file1> [file2...]`
-- 엘리먼트 상태 확인: `is visible|hidden|enabled|disabled|checked|editable|focused <sel>`
-- ref 레이블이 오버레이된 주석 스크린샷 (`snapshot -a`)
-- 이전 스냅샷에 대한 스냅샷 diff (`snapshot -D`)
-- 비 ARIA 클릭 가능 엘리먼트를 위한 커서 상호작용 엘리먼트 스캔 (`snapshot -C`)
-- `wait --networkidle` / `--load` / `--domcontentloaded` 플래그
-- `console --errors` 필터 (오류 + 경고만)
-- 페이지 URL에서 자동 도메인 채우기가 있는 `cookie-import <json-file>`
-- 콘솔/네트워크/대화 버퍼를 위한 O(1) 원형 버퍼 CircularBuffer
-- Bun.write()를 사용한 비동기 버퍼 플러시
-- page.evaluate + 2초 타임아웃으로 헬스 체크
-- Playwright 오류 래핑 — AI 에이전트를 위한 실행 가능한 메시지
-- 쿠키/스토리지/URL을 보존하는 컨텍스트 재생성 (useragent 수정)
-- 10개의 워크플로우 패턴이 있는 QA 지향 플레이북으로 SKILL.md 재작성
-- 통합 테스트 166개 (이전: ~63개)
+- Dialog handling: auto-accept/dismiss, dialog buffer, prompt text support
+- File upload: `upload <sel> <file1> [file2...]`
+- Element state checks: `is visible|hidden|enabled|disabled|checked|editable|focused <sel>`
+- Annotated screenshots with ref labels overlaid (`snapshot -a`)
+- Snapshot diffing against previous snapshot (`snapshot -D`)
+- Cursor-interactive element scan for non-ARIA clickables (`snapshot -C`)
+- `wait --networkidle` / `--load` / `--domcontentloaded` flags
+- `console --errors` filter (error + warning only)
+- `cookie-import <json-file>` with auto-fill domain from page URL
+- CircularBuffer O(1) ring buffer for console/network/dialog buffers
+- Async buffer flush with Bun.write()
+- Health check with page.evaluate + 2s timeout
+- Playwright error wrapping — actionable messages for AI agents
+- Context recreation preserves cookies/storage/URLs (useragent fix)
+- SKILL.md rewritten as QA-oriented playbook with 10 workflow patterns
+- 166 integration tests (was ~63)
 
 ## 0.0.2 — 2026-03-12
 
-- 프로젝트 로컬 `/browse` 설치 수정 — 컴파일된 바이너리가 이제 글로벌 설치가 있다고 가정하는 대신 자신의 디렉토리에서 `server.ts`를 해결
-- `setup`이 누락된 바이너리뿐만 아니라 오래된 바이너리도 재빌드하고 빌드 실패 시 비정상 종료
-- 쓰기 커맨드의 실제 오류를 삼키는 `chain` 커맨드 수정 (예: 탐색 타임아웃이 "알 수 없는 meta 커맨드"로 보고됨)
-- 동일한 커맨드에서 서버가 반복 충돌할 때 CLI의 무한 재시작 루프 수정
-- 50k 항목 위로 끝없이 커지는 대신 콘솔/네트워크 버퍼를 50k 항목으로 제한 (원형 버퍼)
-- 버퍼가 50k 제한에 도달한 후 디스크 플러시가 조용히 멈추는 문제 수정
-- 업그레이드 시 중첩 심볼릭 링크 생성을 방지하기 위해 setup의 `ln -snf` 수정
-- 업그레이드에 `git pull` 대신 `git fetch && git reset --hard` 사용 (force-push 처리)
-- 설치 단순화: 선택적 프로젝트 복사가 있는 글로벌 우선 방식 (서브모듈 방식 대체)
-- README 재구성: 히어로, 이전/이후, 데모 트랜스크립트, 문제 해결 섹션
-- 6개 스킬 (`/retro` 추가)
+- Fix project-local `/browse` installs — compiled binary now resolves `server.ts` from its own directory instead of assuming a global install exists
+- `setup` rebuilds stale binaries (not just missing ones) and exits non-zero if the build fails
+- Fix `chain` command swallowing real errors from write commands (e.g. navigation timeout reported as "Unknown meta command")
+- Fix unbounded restart loop in CLI when server crashes repeatedly on the same command
+- Cap console/network buffers at 50k entries (ring buffer) instead of growing without bound
+- Fix disk flush stopping silently after buffer hits the 50k cap
+- Fix `ln -snf` in setup to avoid creating nested symlinks on upgrade
+- Use `git fetch && git reset --hard` instead of `git pull` for upgrades (handles force-pushes)
+- Simplify install: global-first with optional project copy (replaces submodule approach)
+- Restructured README: hero, before/after, demo transcript, troubleshooting section
+- Six skills (added `/retro`)
 
 ## 0.0.1 — 2026-03-11
 
-초기 릴리스.
+Initial release.
 
-- 5개 스킬: `/plan-ceo-review`, `/plan-eng-review`, `/review`, `/ship`, `/browse`
-- 40개 이상의 커맨드, ref 기반 상호 작용, 영구 Chromium 데몬이 있는 헤드리스 브라우저 CLI
-- Claude Code 스킬로 한 커맨드 설치 (서브모듈 또는 글로벌 클론)
-- 바이너리 컴파일 및 스킬 심볼릭 링크를 위한 `setup` 스크립트
+- Five skills: `/plan-ceo-review`, `/plan-eng-review`, `/review`, `/ship`, `/browse`
+- Headless browser CLI with 40+ commands, ref-based interaction, persistent Chromium daemon
+- One-command install as Claude Code skills (submodule or global clone)
+- `setup` script for binary compilation and skill symlinking

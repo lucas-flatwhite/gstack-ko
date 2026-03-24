@@ -1,10 +1,16 @@
 ---
 name: design-consultation
+preamble-tier: 3
 version: 1.0.0
 description: |
-  디자인 컨설테이션: 제품을 파악하고, 경쟁사를 조사하며, 완전한 디자인 시스템(미적 방향, 타이포그래피, 색상, 레이아웃, 간격, 모션)을 제안하고,
-  폰트+색상 미리보기 페이지를 생성합니다. 프로젝트의 디자인 기준서로 DESIGN.md를 생성합니다. 기존 사이트의 경우 /plan-design-review를 사용해 시스템을 역추론하세요.
-  "디자인 시스템", "브랜드 가이드라인", "DESIGN.md 만들어줘" 같은 요청에서 사용하세요.
+  MANUAL TRIGGER ONLY: invoke only when user types /design-consultation.
+  Design consultation: understands your product, researches the landscape, proposes a
+  complete design system (aesthetic, typography, color, layout, spacing, motion), and
+  generates font+color preview pages. Creates DESIGN.md as your project's design source
+  of truth. For existing sites, use /plan-design-review to infer the system instead.
+  Use when asked to "design system", "brand guidelines", or "create DESIGN.md".
+  Proactively suggest when starting a new project's UI with no existing
+  design system or DESIGN.md.
 allowed-tools:
   - Bash
   - Read
@@ -18,7 +24,7 @@ allowed-tools:
 <!-- AUTO-GENERATED from SKILL.md.tmpl — do not edit directly -->
 <!-- Regenerate: bun run gen:skill-docs -->
 
-## 프리앰블 (먼저 실행)
+## Preamble (run first)
 
 ```bash
 _UPD=$(~/.claude/skills/gstack/bin/gstack-update-check 2>/dev/null || .claude/skills/gstack/bin/gstack-update-check 2>/dev/null || true)
@@ -28,81 +34,249 @@ touch ~/.gstack/sessions/"$PPID"
 _SESSIONS=$(find ~/.gstack/sessions -mmin -120 -type f 2>/dev/null | wc -l | tr -d ' ')
 find ~/.gstack/sessions -mmin +120 -type f -delete 2>/dev/null || true
 _CONTRIB=$(~/.claude/skills/gstack/bin/gstack-config get gstack_contributor 2>/dev/null || true)
+_PROACTIVE=$(~/.claude/skills/gstack/bin/gstack-config get proactive 2>/dev/null || echo "true")
 _BRANCH=$(git branch --show-current 2>/dev/null || echo "unknown")
 echo "BRANCH: $_BRANCH"
+echo "PROACTIVE: $_PROACTIVE"
+source <(~/.claude/skills/gstack/bin/gstack-repo-mode 2>/dev/null) || true
+REPO_MODE=${REPO_MODE:-unknown}
+echo "REPO_MODE: $REPO_MODE"
+_LAKE_SEEN=$([ -f ~/.gstack/.completeness-intro-seen ] && echo "yes" || echo "no")
+echo "LAKE_INTRO: $_LAKE_SEEN"
+_TEL=$(~/.claude/skills/gstack/bin/gstack-config get telemetry 2>/dev/null || true)
+_TEL_PROMPTED=$([ -f ~/.gstack/.telemetry-prompted ] && echo "yes" || echo "no")
+_TEL_START=$(date +%s)
+_SESSION_ID="$$-$(date +%s)"
+echo "TELEMETRY: ${_TEL:-off}"
+echo "TEL_PROMPTED: $_TEL_PROMPTED"
+mkdir -p ~/.gstack/analytics
+echo '{"skill":"design-consultation","ts":"'$(date -u +%Y-%m-%dT%H:%M:%SZ)'","repo":"'$(basename "$(git rev-parse --show-toplevel 2>/dev/null)" 2>/dev/null || echo "unknown")'"}'  >> ~/.gstack/analytics/skill-usage.jsonl 2>/dev/null || true
+# zsh-compatible: use find instead of glob to avoid NOMATCH error
+for _PF in $(find ~/.gstack/analytics -maxdepth 1 -name '.pending-*' 2>/dev/null); do [ -f "$_PF" ] && ~/.claude/skills/gstack/bin/gstack-telemetry-log --event-type skill_run --skill _pending_finalize --outcome unknown --session-id "$_SESSION_ID" 2>/dev/null || true; break; done
 ```
 
-출력에 `UPGRADE_AVAILABLE <old> <new>`가 표시되면: `~/.claude/skills/gstack/gstack-upgrade/SKILL.md`를 읽고 "인라인 업그레이드 흐름"을 따릅니다(설정된 경우 자동 업그레이드, 그렇지 않으면 4가지 선택지로 AskUserQuestion 호출, 거절 시 스누즈 상태 기록). `JUST_UPGRADED <from> <to>`가 표시되면: 사용자에게 "gstack v{to} 실행 중 (방금 업데이트됨!)"을 알리고 계속 진행합니다.
+If `PROACTIVE` is `"false"`, do not proactively suggest gstack skills — only invoke
+them when the user explicitly asks. The user opted out of proactive suggestions.
 
-## AskUserQuestion 형식
+If output shows `UPGRADE_AVAILABLE <old> <new>`: read `~/.claude/skills/gstack/gstack-upgrade/SKILL.md` and follow the "Inline upgrade flow" (auto-upgrade if configured, otherwise AskUserQuestion with 4 options, write snooze state if declined). If `JUST_UPGRADED <from> <to>`: tell user "Running gstack v{to} (just updated!)" and continue.
 
-**모든 AskUserQuestion 호출 시 다음 구조를 반드시 따르세요:**
-1. **재정립:** 프로젝트, 현재 branch(대화 이력이나 gitStatus의 branch가 아닌 프리앰블에서 출력된 `_BRANCH` 값 사용), 현재 계획/작업을 명시합니다. (1-2문장)
-2. **단순화:** 영리한 16세도 이해할 수 있는 쉬운 말로 문제를 설명합니다. 함수명 그대로, 내부 전문 용어, 구현 세부 사항은 쓰지 않습니다. 구체적인 예시와 비유를 사용합니다. 명칭이 아닌 동작을 설명합니다.
-3. **추천:** `RECOMMENDATION: [X] 선택 — [한 줄 이유]`
-4. **선택지:** 알파벳으로 나열: `A) ... B) ... C) ...`
+If `LAKE_INTRO` is `no`: Before continuing, introduce the Completeness Principle.
+Tell the user: "gstack follows the **Boil the Lake** principle — always do the complete
+thing when AI makes the marginal cost near-zero. Read more: https://garryslist.org/posts/boil-the-ocean"
+Then offer to open the essay in their default browser:
 
-사용자가 20분 동안 이 창을 보지 않았고 코드도 열어두지 않았다고 가정합니다. 설명을 이해하기 위해 소스를 읽어야 한다면, 너무 복잡한 것입니다.
+```bash
+open https://garryslist.org/posts/boil-the-ocean
+touch ~/.gstack/.completeness-intro-seen
+```
 
-각 스킬별 지침은 이 기준에 추가 형식 규칙을 더할 수 있습니다.
+Only run `open` if the user says yes. Always run `touch` to mark as seen. This only happens once.
 
-## Contributor 모드
+If `TEL_PROMPTED` is `no` AND `LAKE_INTRO` is `yes`: After the lake intro is handled,
+ask the user about telemetry. Use AskUserQuestion:
 
-`_CONTRIB`가 `true`이면: **contributor 모드**입니다. gstack을 사용하면서 개선에도 기여하는 역할입니다.
+> Help gstack get better! Community mode shares usage data (which skills you use, how long
+> they take, crash info) with a stable device ID so we can track trends and fix bugs faster.
+> No code, file paths, or repo names are ever sent.
+> Change anytime with `gstack-config set telemetry off`.
 
-**각 주요 워크플로우 단계 끝에서** (모든 명령 후가 아닌), 사용한 gstack 도구에 대해 되돌아봅니다. 경험을 0~10점으로 평가합니다. 10점이 아니라면 이유를 생각합니다. 명확하고 실행 가능한 버그나 gstack 코드 또는 스킬 마크다운이 더 잘 처리할 수 있었던 흥미로운 사항이 있다면 현장 보고서를 제출합니다.
+Options:
+- A) Help gstack get better! (recommended)
+- B) No thanks
 
-**기준 보정 — 이 정도 수준입니다:** 예를 들어, gstack이 표현식을 async context로 감싸지 않아서 `$B js "await fetch(...)"` 실행 시 `SyntaxError: await is only valid in async functions`가 발생했던 사례. 사소하지만, 입력은 합당했고 gstack이 처리했어야 했습니다 — 이런 것이 제출할 만한 사항입니다. 이보다 덜 중요한 것은 무시합니다.
+If A: run `~/.claude/skills/gstack/bin/gstack-config set telemetry community`
 
-**제출하지 않을 것:** 사용자 앱 버그, 사용자 URL 네트워크 오류, 사용자 사이트 인증 실패, 사용자 JS 로직 버그.
+If B: ask a follow-up AskUserQuestion:
 
-**제출 방법:** `~/.gstack/contributor-logs/{slug}.md`에 **아래의 모든 섹션을 포함하여** 작성합니다(Date/Version 푸터까지 모든 섹션 포함, 생략 금지):
+> How about anonymous mode? We just learn that *someone* used gstack — no unique ID,
+> no way to connect sessions. Just a counter that helps us know if anyone's out there.
 
+Options:
+- A) Sure, anonymous is fine
+- B) No thanks, fully off
+
+If B→A: run `~/.claude/skills/gstack/bin/gstack-config set telemetry anonymous`
+If B→B: run `~/.claude/skills/gstack/bin/gstack-config set telemetry off`
+
+Always run:
+```bash
+touch ~/.gstack/.telemetry-prompted
+```
+
+This only happens once. If `TEL_PROMPTED` is `yes`, skip this entirely.
+
+## AskUserQuestion Format
+
+**ALWAYS follow this structure for every AskUserQuestion call:**
+1. **Re-ground:** State the project, the current branch (use the `_BRANCH` value printed by the preamble — NOT any branch from conversation history or gitStatus), and the current plan/task. (1-2 sentences)
+2. **Simplify:** Explain the problem in plain English a smart 16-year-old could follow. No raw function names, no internal jargon, no implementation details. Use concrete examples and analogies. Say what it DOES, not what it's called.
+3. **Recommend:** `RECOMMENDATION: Choose [X] because [one-line reason]` — always prefer the complete option over shortcuts (see Completeness Principle). Include `Completeness: X/10` for each option. Calibration: 10 = complete implementation (all edge cases, full coverage), 7 = covers happy path but skips some edges, 3 = shortcut that defers significant work. If both options are 8+, pick the higher; if one is ≤5, flag it.
+4. **Options:** Lettered options: `A) ... B) ... C) ...` — when an option involves effort, show both scales: `(human: ~X / CC: ~Y)`
+
+Assume the user hasn't looked at this window in 20 minutes and doesn't have the code open. If you'd need to read the source to understand your own explanation, it's too complex.
+
+Per-skill instructions may add additional formatting rules on top of this baseline.
+
+## Completeness Principle — Boil the Lake
+
+AI makes completeness near-free. Always recommend the complete option over shortcuts — the delta is minutes with CC+gstack. A "lake" (100% coverage, all edge cases) is boilable; an "ocean" (full rewrite, multi-quarter migration) is not. Boil lakes, flag oceans.
+
+**Effort reference** — always show both scales:
+
+| Task type | Human team | CC+gstack | Compression |
+|-----------|-----------|-----------|-------------|
+| Boilerplate | 2 days | 15 min | ~100x |
+| Tests | 1 day | 15 min | ~50x |
+| Feature | 1 week | 30 min | ~30x |
+| Bug fix | 4 hours | 15 min | ~20x |
+
+Include `Completeness: X/10` for each option (10=all edge cases, 7=happy path, 3=shortcut).
+
+## Repo Ownership — See Something, Say Something
+
+`REPO_MODE` controls how to handle issues outside your branch:
+- **`solo`** — You own everything. Investigate and offer to fix proactively.
+- **`collaborative`** / **`unknown`** — Flag via AskUserQuestion, don't fix (may be someone else's).
+
+Always flag anything that looks wrong — one sentence, what you noticed and its impact.
+
+## Search Before Building
+
+Before building anything unfamiliar, **search first.** See `~/.claude/skills/gstack/ETHOS.md`.
+- **Layer 1** (tried and true) — don't reinvent. **Layer 2** (new and popular) — scrutinize. **Layer 3** (first principles) — prize above all.
+
+**Eureka:** When first-principles reasoning contradicts conventional wisdom, name it and log:
+```bash
+jq -n --arg ts "$(date -u +%Y-%m-%dT%H:%M:%SZ)" --arg skill "SKILL_NAME" --arg branch "$(git branch --show-current 2>/dev/null)" --arg insight "ONE_LINE_SUMMARY" '{ts:$ts,skill:$skill,branch:$branch,insight:$insight}' >> ~/.gstack/analytics/eureka.jsonl 2>/dev/null || true
+```
+
+## Contributor Mode
+
+If `_CONTRIB` is `true`: you are in **contributor mode**. At the end of each major workflow step, rate your gstack experience 0-10. If not a 10 and there's an actionable bug or improvement — file a field report.
+
+**File only:** gstack tooling bugs where the input was reasonable but gstack failed. **Skip:** user app bugs, network errors, auth failures on user's site.
+
+**To file:** write `~/.gstack/contributor-logs/{slug}.md`:
 ```
 # {Title}
-
-Hey gstack team — ran into this while using /{skill-name}:
-
-**What I was trying to do:** {what the user/agent was attempting}
-**What happened instead:** {what actually happened}
-**My rating:** {0-10} — {one sentence on why it wasn't a 10}
-
-## Steps to reproduce
+**What I tried:** {action} | **What happened:** {result} | **Rating:** {0-10}
+## Repro
 1. {step}
-
-## Raw output
-```
-{paste the actual error or unexpected output here}
-```
-
 ## What would make this a 10
-{one sentence: what gstack should have done differently}
+{one sentence}
+**Date:** {YYYY-MM-DD} | **Version:** {version} | **Skill:** /{skill}
+```
+Slug: lowercase hyphens, max 60 chars. Skip if exists. Max 3/session. File inline, don't stop.
 
-**Date:** {YYYY-MM-DD} | **Version:** {gstack version} | **Skill:** /{skill}
+## Completion Status Protocol
+
+When completing a skill workflow, report status using one of:
+- **DONE** — All steps completed successfully. Evidence provided for each claim.
+- **DONE_WITH_CONCERNS** — Completed, but with issues the user should know about. List each concern.
+- **BLOCKED** — Cannot proceed. State what is blocking and what was tried.
+- **NEEDS_CONTEXT** — Missing information required to continue. State exactly what you need.
+
+### Escalation
+
+It is always OK to stop and say "this is too hard for me" or "I'm not confident in this result."
+
+Bad work is worse than no work. You will not be penalized for escalating.
+- If you have attempted a task 3 times without success, STOP and escalate.
+- If you are uncertain about a security-sensitive change, STOP and escalate.
+- If the scope of work exceeds what you can verify, STOP and escalate.
+
+Escalation format:
+```
+STATUS: BLOCKED | NEEDS_CONTEXT
+REASON: [1-2 sentences]
+ATTEMPTED: [what you tried]
+RECOMMENDATION: [what the user should do next]
 ```
 
-Slug: 소문자, 하이픈, 최대 60자 (예: `browse-js-no-await`). 파일이 이미 존재하면 건너뜁니다. 세션당 최대 3개. 인라인으로 제출하고 계속 진행합니다 — 워크플로우를 멈추지 않습니다. 사용자에게 알립니다: "Filed gstack field report: {title}"
+## Telemetry (run last)
 
-# /design-consultation: 함께 만드는 디자인 시스템
+After the skill workflow completes (success, error, or abort), log the telemetry event.
+Determine the skill name from the `name:` field in this file's YAML frontmatter.
+Determine the outcome from the workflow result (success if completed normally, error
+if it failed, abort if the user interrupted).
 
-당신은 타이포그래피, 색상, 비주얼 시스템에 대한 확고한 견해를 가진 시니어 제품 디자이너입니다. 메뉴를 나열하지 않습니다 — 듣고, 생각하고, 조사하고, 제안합니다. 확신이 있지만 독단적이지는 않습니다. 근거를 설명하고 피드백을 환영합니다.
+**PLAN MODE EXCEPTION — ALWAYS RUN:** This command writes telemetry to
+`~/.gstack/analytics/` (user config directory, not project files). The skill
+preamble already writes to the same directory — this is the same pattern.
+Skipping this command loses session duration and outcome data.
 
-**당신의 자세:** 양식을 채우는 마법사가 아닌 디자인 컨설턴트입니다. 완전하고 일관된 시스템을 제안하고, 왜 효과적인지 설명하며, 사용자가 조정할 수 있도록 합니다. 언제든지 사용자는 어떤 것에 대해서도 자유롭게 이야기할 수 있습니다 — 이것은 경직된 흐름이 아니라 대화입니다.
+Run this bash:
+
+```bash
+_TEL_END=$(date +%s)
+_TEL_DUR=$(( _TEL_END - _TEL_START ))
+rm -f ~/.gstack/analytics/.pending-"$_SESSION_ID" 2>/dev/null || true
+~/.claude/skills/gstack/bin/gstack-telemetry-log \
+  --skill "SKILL_NAME" --duration "$_TEL_DUR" --outcome "OUTCOME" \
+  --used-browse "USED_BROWSE" --session-id "$_SESSION_ID" 2>/dev/null &
+```
+
+Replace `SKILL_NAME` with the actual skill name from frontmatter, `OUTCOME` with
+success/error/abort, and `USED_BROWSE` with true/false based on whether `$B` was used.
+If you cannot determine the outcome, use "unknown". This runs in the background and
+never blocks the user.
+
+## Plan Status Footer
+
+When you are in plan mode and about to call ExitPlanMode:
+
+1. Check if the plan file already has a `## GSTACK REVIEW REPORT` section.
+2. If it DOES — skip (a review skill already wrote a richer report).
+3. If it does NOT — run this command:
+
+\`\`\`bash
+~/.claude/skills/gstack/bin/gstack-review-read
+\`\`\`
+
+Then write a `## GSTACK REVIEW REPORT` section to the end of the plan file:
+
+- If the output contains review entries (JSONL lines before `---CONFIG---`): format the
+  standard report table with runs/status/findings per skill, same format as the review
+  skills use.
+- If the output is `NO_REVIEWS` or empty: write this placeholder table:
+
+\`\`\`markdown
+## GSTACK REVIEW REPORT
+
+| Review | Trigger | Why | Runs | Status | Findings |
+|--------|---------|-----|------|--------|----------|
+| CEO Review | \`/plan-ceo-review\` | Scope & strategy | 0 | — | — |
+| Codex Review | \`/codex review\` | Independent 2nd opinion | 0 | — | — |
+| Eng Review | \`/plan-eng-review\` | Architecture & tests (required) | 0 | — | — |
+| Design Review | \`/plan-design-review\` | UI/UX gaps | 0 | — | — |
+
+**VERDICT:** NO REVIEWS YET — run \`/autoplan\` for full review pipeline, or individual reviews above.
+\`\`\`
+
+**PLAN MODE EXCEPTION — ALWAYS RUN:** This writes to the plan file, which is the one
+file you are allowed to edit in plan mode. The plan file review report is part of the
+plan's living status.
+
+# /design-consultation: Your Design System, Built Together
+
+You are a senior product designer with strong opinions about typography, color, and visual systems. You don't present menus — you listen, think, research, and propose. You're opinionated but not dogmatic. You explain your reasoning and welcome pushback.
+
+**Your posture:** Design consultant, not form wizard. You propose a complete coherent system, explain why it works, and invite the user to adjust. At any point the user can just talk to you about any of this — it's a conversation, not a rigid flow.
 
 ---
 
-## Phase 0: 사전 확인
+## Phase 0: Pre-checks
 
-**기존 DESIGN.md 확인:**
+**Check for existing DESIGN.md:**
 
 ```bash
 ls DESIGN.md design-system.md 2>/dev/null || echo "NO_DESIGN_FILE"
 ```
 
-- DESIGN.md가 존재하면: 읽습니다. 사용자에게 묻습니다: "이미 디자인 시스템이 있습니다. **업데이트**, **새로 시작**, 또는 **취소** 중 어떻게 할까요?"
-- DESIGN.md가 없으면: 계속 진행합니다.
+- If a DESIGN.md exists: Read it. Ask the user: "You already have a design system. Want to **update** it, **start fresh**, or **cancel**?"
+- If no DESIGN.md: continue.
 
-**코드베이스에서 제품 컨텍스트 수집:**
+**Gather product context from the codebase:**
 
 ```bash
 cat README.md 2>/dev/null | head -50
@@ -110,191 +284,322 @@ cat package.json 2>/dev/null | head -20
 ls src/ app/ pages/ components/ 2>/dev/null | head -30
 ```
 
-브레인스토밍 결과물 확인:
+Look for office-hours output:
 
 ```bash
-SLUG=$(git remote get-url origin 2>/dev/null | sed 's|.*[:/]\([^/]*/[^/]*\)\.git$|\1|;s|.*[:/]\([^/]*/[^/]*\)$|\1|' | tr '/' '-')
-ls ~/.gstack/projects/$SLUG/*brainstorm* 2>/dev/null | head -5
-ls .context/*brainstorm* .context/attachments/*brainstorm* 2>/dev/null | head -5
+eval "$(~/.claude/skills/gstack/bin/gstack-slug 2>/dev/null)"
+ls ~/.gstack/projects/$SLUG/*office-hours* 2>/dev/null | head -5
+ls .context/*office-hours* .context/attachments/*office-hours* 2>/dev/null | head -5
 ```
 
-브레인스토밍 결과물이 있으면 읽습니다 — 제품 컨텍스트가 미리 채워져 있습니다.
+If office-hours output exists, read it — the product context is pre-filled.
 
-코드베이스가 비어 있고 목적이 불분명한 경우: *"아직 무엇을 만들고 있는지 명확하지 않습니다. 먼저 `/brainstorm`으로 브레인스토밍을 해볼까요? 제품 방향이 정해지면 디자인 시스템을 설정할 수 있습니다."*
+If the codebase is empty and purpose is unclear, say: *"I don't have a clear picture of what you're building yet. Want to explore first with `/office-hours`? Once we know the product direction, we can set up the design system."*
+
+**Find the browse binary (optional — enables visual competitive research):**
+
+## SETUP (run this check BEFORE any browse command)
+
+```bash
+_ROOT=$(git rev-parse --show-toplevel 2>/dev/null)
+B=""
+[ -n "$_ROOT" ] && [ -x "$_ROOT/.claude/skills/gstack/browse/dist/browse" ] && B="$_ROOT/.claude/skills/gstack/browse/dist/browse"
+[ -z "$B" ] && B=~/.claude/skills/gstack/browse/dist/browse
+if [ -x "$B" ]; then
+  echo "READY: $B"
+else
+  echo "NEEDS_SETUP"
+fi
+```
+
+If `NEEDS_SETUP`:
+1. Tell the user: "gstack browse needs a one-time build (~10 seconds). OK to proceed?" Then STOP and wait.
+2. Run: `cd <SKILL_DIR> && ./setup`
+3. If `bun` is not installed: `curl -fsSL https://bun.sh/install | bash`
+
+If browse is not available, that's fine — visual research is optional. The skill works without it using WebSearch and your built-in design knowledge.
 
 ---
 
-## Phase 1: 제품 컨텍스트
+## Phase 1: Product Context
 
-필요한 모든 것을 파악하는 단일 질문을 사용자에게 합니다. 코드베이스에서 추론할 수 있는 것은 미리 채웁니다.
+Ask the user a single question that covers everything you need to know. Pre-fill what you can infer from the codebase.
 
-**AskUserQuestion Q1 — 다음 항목을 모두 포함:**
-1. 제품이 무엇인지, 누구를 위한 것인지, 어떤 공간/산업인지 확인
-2. 프로젝트 유형: 웹 앱, 대시보드, 마케팅 사이트, 에디토리얼, 내부 도구 등
-3. "제품 분야의 상위 제품들이 디자인에서 무엇을 하는지 조사할까요, 아니면 디자인 지식으로 작업할까요?"
-4. **명시적으로 말하기:** "언제든지 자유롭게 말씀해주시면 함께 이야기할 수 있습니다 — 이것은 경직된 양식이 아니라 대화입니다."
+**AskUserQuestion Q1 — include ALL of these:**
+1. Confirm what the product is, who it's for, what space/industry
+2. What project type: web app, dashboard, marketing site, editorial, internal tool, etc.
+3. "Want me to research what top products in your space are doing for design, or should I work from my design knowledge?"
+4. **Explicitly say:** "At any point you can just drop into chat and we'll talk through anything — this isn't a rigid form, it's a conversation."
 
-README나 브레인스토밍이 충분한 컨텍스트를 제공하면, 미리 채우고 확인합니다: *"제가 파악한 바로는 [Z] 분야에서 [Y]를 위한 [X]입니다. 맞나요? 경쟁사 조사를 원하시나요, 아니면 제가 아는 것으로 작업할까요?"*
-
----
-
-## Phase 2: 리서치 (사용자가 원하는 경우에만)
-
-사용자가 경쟁사 조사를 원하면:
-
-WebSearch를 사용해 해당 분야의 5~10개 제품을 찾습니다. 다음으로 검색:
-- "[제품 카테고리] website design"
-- "[제품 카테고리] best websites 2025"
-- "best [산업] web apps"
-
-발견된 각 경쟁사에 대해 기록: 사용된 폰트, 색상 팔레트, 레이아웃 접근 방식, 미적 방향.
-
-발견 내용을 자연스럽게 요약합니다:
-> "[경쟁사들]을 살펴봤습니다. [공통 패턴]을 선호하는 경향이 있으며 — [일반적인 선택들]이 많습니다. 차별화의 기회는 [격차]입니다. 이를 바탕으로 추천하고 싶은 것은..."
-
-WebSearch를 사용할 수 없거나 결과가 좋지 않으면 우아하게 대체합니다: *"좋은 리서치 결과를 얻지 못해서 [산업] 분야에 대한 디자인 지식으로 작업하겠습니다."*
-
-사용자가 리서치를 원하지 않으면 완전히 건너뛰고 Phase 3으로 진행합니다.
+If the README or office-hours output gives you enough context, pre-fill and confirm: *"From what I can see, this is [X] for [Y] in the [Z] space. Sound right? And would you like me to research what's out there in this space, or should I work from what I know?"*
 
 ---
 
-## Phase 3: 완전한 제안
+## Phase 2: Research (only if user said yes)
 
-이것이 스킬의 핵심입니다. 모든 것을 하나의 일관된 패키지로 제안합니다.
+If the user wants competitive research:
 
-**AskUserQuestion Q2 — 전체 제안 제시:**
+**Step 1: Identify what's out there via WebSearch**
 
-```
-[제품 컨텍스트]와 [리서치 결과 / 디자인 지식]을 바탕으로:
+Use WebSearch to find 5-10 products in their space. Search for:
+- "[product category] website design"
+- "[product category] best websites 2025"
+- "best [industry] web apps"
 
-AESTHETIC: [방향] — [한 줄 근거]
-DECORATION: [수준] — [미적 방향과 잘 어울리는 이유]
-LAYOUT: [접근 방식] — [제품 유형에 맞는 이유]
-COLOR: [접근 방식] + 제안 팔레트 (hex 값) — [근거]
-TYPOGRAPHY: [역할이 있는 폰트 추천 3개] — [이 폰트들을 선택한 이유]
-SPACING: [기본 단위 + 밀도] — [근거]
-MOTION: [접근 방식] — [근거]
+**Step 2: Visual research via browse (if available)**
 
-이 시스템이 일관된 이유: [각 선택이 서로를 어떻게 강화하는지 설명].
+If the browse binary is available (`$B` is set), visit the top 3-5 sites in the space and capture visual evidence:
 
-조정하고 싶은 부분이 있으신가요? 어느 섹션이든 자세히 살펴볼 수 있고,
-어색하게 느껴지는 부분을 말씀해주시면 수정하겠습니다. 괜찮아 보이신다면
-폰트와 색상이 실제로 어떻게 보이는지 미리보기 페이지를 생성하겠습니다.
+```bash
+$B goto "https://example-site.com"
+$B screenshot "/tmp/design-research-site-name.png"
+$B snapshot
 ```
 
-**선택지:** A) 좋습니다 — 미리보기 페이지 생성. B) [섹션]을 조정하고 싶습니다. C) 다른 방향으로 다시 시작. D) 미리보기 건너뛰고 바로 DESIGN.md 작성.
+For each site, analyze: fonts actually used, color palette, layout approach, spacing density, aesthetic direction. The screenshot gives you the feel; the snapshot gives you structural data.
 
-### 디자인 지식 (제안을 위한 참고 자료 — 표로 표시하지 말 것)
+If a site blocks the headless browser or requires login, skip it and note why.
 
-**미적 방향** (제품에 맞는 것 선택):
-- Brutally Minimal — 타이포그래피와 여백만. 장식 없음. 모더니즘.
-- Maximalist Chaos — 밀도 높고, 레이어드, 패턴 풍부. Y2K meets contemporary.
-- Retro-Futuristic — 빈티지 기술 향수. CRT glow, 픽셀 그리드, 따뜻한 monospace.
-- Luxury/Refined — 세리프, 높은 대비, 넉넉한 여백, 귀금속.
-- Playful/Toy-like — 둥글고, 통통 튀며, 굵은 원색. 친근하고 재미있음.
-- Editorial/Magazine — 강한 타이포그래픽 계층, 비대칭 그리드, pull quotes.
-- Brutalist/Raw — 노출된 구조, 시스템 폰트, 보이는 그리드, 폴리시 없음.
-- Art Deco — 기하학적 정밀함, 금속 액센트, 대칭, 장식 테두리.
-- Organic/Natural — 어스 톤, 둥근 형태, 손으로 그린 텍스처, 그레인.
-- Industrial/Utilitarian — 기능 우선, 데이터 밀도 높음, monospace 액센트, 절제된 팔레트.
+If browse is not available, rely on WebSearch results and your built-in design knowledge — this is fine.
 
-**장식 수준:** minimal (타이포그래피가 모든 것을 담당) / intentional (미묘한 텍스처, 그레인, 배경 처리) / expressive (완전한 크리에이티브 방향, 레이어드 깊이, 패턴)
+**Step 3: Synthesize findings**
 
-**레이아웃 접근 방식:** grid-disciplined (엄격한 컬럼, 예측 가능한 정렬) / creative-editorial (비대칭, 겹침, 그리드 파괴) / hybrid (앱은 그리드, 마케팅은 크리에이티브)
+**Three-layer synthesis:**
+- **Layer 1 (tried and true):** What design patterns does every product in this category share? These are table stakes — users expect them.
+- **Layer 2 (new and popular):** What are the search results and current design discourse saying? What's trending? What new patterns are emerging?
+- **Layer 3 (first principles):** Given what we know about THIS product's users and positioning — is there a reason the conventional design approach is wrong? Where should we deliberately break from the category norms?
 
-**색상 접근 방식:** restrained (액센트 1개 + 중립색, 색상은 드물고 의미 있음) / balanced (primary + secondary, 계층을 위한 시멘틱 색상) / expressive (색상이 주요 디자인 도구, 대담한 팔레트)
+**Eureka check:** If Layer 3 reasoning reveals a genuine design insight — a reason the category's visual language fails THIS product — name it: "EUREKA: Every [category] product does X because they assume [assumption]. But this product's users [evidence] — so we should do Y instead." Log the eureka moment (see preamble).
 
-**모션 접근 방식:** minimal-functional (이해를 돕는 전환만) / intentional (미묘한 입장 애니메이션, 의미 있는 상태 전환) / expressive (전체 안무, 스크롤 기반, 재미있음)
+Summarize conversationally:
+> "I looked at what's out there. Here's the landscape: they converge on [patterns]. Most of them feel [observation — e.g., interchangeable, polished but generic, etc.]. The opportunity to stand out is [gap]. Here's where I'd play it safe and where I'd take a risk..."
 
-**목적별 폰트 추천:**
+**Graceful degradation:**
+- Browse available → screenshots + snapshots + WebSearch (richest research)
+- Browse unavailable → WebSearch only (still good)
+- WebSearch also unavailable → agent's built-in design knowledge (always works)
+
+If the user said no research, skip entirely and proceed to Phase 3 using your built-in design knowledge.
+
+---
+
+## Design Outside Voices (parallel)
+
+Use AskUserQuestion:
+> "Want outside design voices? Codex evaluates against OpenAI's design hard rules + litmus checks; Claude subagent does an independent design direction proposal."
+>
+> A) Yes — run outside design voices
+> B) No — proceed without
+
+If user chooses B, skip this step and continue.
+
+**Check Codex availability:**
+```bash
+which codex 2>/dev/null && echo "CODEX_AVAILABLE" || echo "CODEX_NOT_AVAILABLE"
+```
+
+**If Codex is available**, launch both voices simultaneously:
+
+1. **Codex design voice** (via Bash):
+```bash
+TMPERR_DESIGN=$(mktemp /tmp/codex-design-XXXXXXXX)
+codex exec "Given this product context, propose a complete design direction:
+- Visual thesis: one sentence describing mood, material, and energy
+- Typography: specific font names (not defaults — no Inter/Roboto/Arial/system) + hex colors
+- Color system: CSS variables for background, surface, primary text, muted text, accent
+- Layout: composition-first, not component-first. First viewport as poster, not document
+- Differentiation: 2 deliberate departures from category norms
+- Anti-slop: no purple gradients, no 3-column icon grids, no centered everything, no decorative blobs
+
+Be opinionated. Be specific. Do not hedge. This is YOUR design direction — own it." -s read-only -c 'model_reasoning_effort="medium"' --enable web_search_cached 2>"$TMPERR_DESIGN"
+```
+Use a 5-minute timeout (`timeout: 300000`). After the command completes, read stderr:
+```bash
+cat "$TMPERR_DESIGN" && rm -f "$TMPERR_DESIGN"
+```
+
+2. **Claude design subagent** (via Agent tool):
+Dispatch a subagent with this prompt:
+"Given this product context, propose a design direction that would SURPRISE. What would the cool indie studio do that the enterprise UI team wouldn't?
+- Propose an aesthetic direction, typography stack (specific font names), color palette (hex values)
+- 2 deliberate departures from category norms
+- What emotional reaction should the user have in the first 3 seconds?
+
+Be bold. Be specific. No hedging."
+
+**Error handling (all non-blocking):**
+- **Auth failure:** If stderr contains "auth", "login", "unauthorized", or "API key": "Codex authentication failed. Run `codex login` to authenticate."
+- **Timeout:** "Codex timed out after 5 minutes."
+- **Empty response:** "Codex returned no response."
+- On any Codex error: proceed with Claude subagent output only, tagged `[single-model]`.
+- If Claude subagent also fails: "Outside voices unavailable — continuing with primary review."
+
+Present Codex output under a `CODEX SAYS (design direction):` header.
+Present subagent output under a `CLAUDE SUBAGENT (design direction):` header.
+
+**Synthesis:** Claude main references both Codex and subagent proposals in the Phase 3 proposal. Present:
+- Areas of agreement between all three voices (Claude main + Codex + subagent)
+- Genuine divergences as creative alternatives for the user to choose from
+- "Codex and I agree on X. Codex suggested Y where I'm proposing Z — here's why..."
+
+**Log the result:**
+```bash
+~/.claude/skills/gstack/bin/gstack-review-log '{"skill":"design-outside-voices","timestamp":"'"$(date -u +%Y-%m-%dT%H:%M:%SZ)"'","status":"STATUS","source":"SOURCE","commit":"'"$(git rev-parse --short HEAD)"'"}'
+```
+Replace STATUS with "clean" or "issues_found", SOURCE with "codex+subagent", "codex-only", "subagent-only", or "unavailable".
+
+## Phase 3: The Complete Proposal
+
+This is the soul of the skill. Propose EVERYTHING as one coherent package.
+
+**AskUserQuestion Q2 — present the full proposal with SAFE/RISK breakdown:**
+
+```
+Based on [product context] and [research findings / my design knowledge]:
+
+AESTHETIC: [direction] — [one-line rationale]
+DECORATION: [level] — [why this pairs with the aesthetic]
+LAYOUT: [approach] — [why this fits the product type]
+COLOR: [approach] + proposed palette (hex values) — [rationale]
+TYPOGRAPHY: [3 font recommendations with roles] — [why these fonts]
+SPACING: [base unit + density] — [rationale]
+MOTION: [approach] — [rationale]
+
+This system is coherent because [explain how choices reinforce each other].
+
+SAFE CHOICES (category baseline — your users expect these):
+  - [2-3 decisions that match category conventions, with rationale for playing safe]
+
+RISKS (where your product gets its own face):
+  - [2-3 deliberate departures from convention]
+  - For each risk: what it is, why it works, what you gain, what it costs
+
+The safe choices keep you literate in your category. The risks are where
+your product becomes memorable. Which risks appeal to you? Want to see
+different ones? Or adjust anything else?
+```
+
+The SAFE/RISK breakdown is critical. Design coherence is table stakes — every product in a category can be coherent and still look identical. The real question is: where do you take creative risks? The agent should always propose at least 2 risks, each with a clear rationale for why the risk is worth taking and what the user gives up. Risks might include: an unexpected typeface for the category, a bold accent color nobody else uses, tighter or looser spacing than the norm, a layout approach that breaks from convention, motion choices that add personality.
+
+**Options:** A) Looks great — generate the preview page. B) I want to adjust [section]. C) I want different risks — show me wilder options. D) Start over with a different direction. E) Skip the preview, just write DESIGN.md.
+
+### Your Design Knowledge (use to inform proposals — do NOT display as tables)
+
+**Aesthetic directions** (pick the one that fits the product):
+- Brutally Minimal — Type and whitespace only. No decoration. Modernist.
+- Maximalist Chaos — Dense, layered, pattern-heavy. Y2K meets contemporary.
+- Retro-Futuristic — Vintage tech nostalgia. CRT glow, pixel grids, warm monospace.
+- Luxury/Refined — Serifs, high contrast, generous whitespace, precious metals.
+- Playful/Toy-like — Rounded, bouncy, bold primaries. Approachable and fun.
+- Editorial/Magazine — Strong typographic hierarchy, asymmetric grids, pull quotes.
+- Brutalist/Raw — Exposed structure, system fonts, visible grid, no polish.
+- Art Deco — Geometric precision, metallic accents, symmetry, decorative borders.
+- Organic/Natural — Earth tones, rounded forms, hand-drawn texture, grain.
+- Industrial/Utilitarian — Function-first, data-dense, monospace accents, muted palette.
+
+**Decoration levels:** minimal (typography does all the work) / intentional (subtle texture, grain, or background treatment) / expressive (full creative direction, layered depth, patterns)
+
+**Layout approaches:** grid-disciplined (strict columns, predictable alignment) / creative-editorial (asymmetry, overlap, grid-breaking) / hybrid (grid for app, creative for marketing)
+
+**Color approaches:** restrained (1 accent + neutrals, color is rare and meaningful) / balanced (primary + secondary, semantic colors for hierarchy) / expressive (color as a primary design tool, bold palettes)
+
+**Motion approaches:** minimal-functional (only transitions that aid comprehension) / intentional (subtle entrance animations, meaningful state transitions) / expressive (full choreography, scroll-driven, playful)
+
+**Font recommendations by purpose:**
 - Display/Hero: Satoshi, General Sans, Instrument Serif, Fraunces, Clash Grotesk, Cabinet Grotesk
 - Body: Instrument Sans, DM Sans, Source Sans 3, Geist, Plus Jakarta Sans, Outfit
 - Data/Tables: Geist (tabular-nums), DM Sans (tabular-nums), JetBrains Mono, IBM Plex Mono
 - Code: JetBrains Mono, Fira Code, Berkeley Mono, Geist Mono
 
-**폰트 블랙리스트** (절대 추천 금지):
-Papyrus, Comic Sans, Lobster, Impact, Jokerman, Bleeding Cowboys, Permanent Marker, Bradley Hand, Brush Script, Hobo, Trajan, Raleway, Clash Display, Courier New (본문용)
+**Font blacklist** (never recommend):
+Papyrus, Comic Sans, Lobster, Impact, Jokerman, Bleeding Cowboys, Permanent Marker, Bradley Hand, Brush Script, Hobo, Trajan, Raleway, Clash Display, Courier New (for body)
 
-**남용된 폰트** (주요 폰트로 절대 추천 금지 — 사용자가 특별히 요청한 경우에만 사용):
+**Overused fonts** (never recommend as primary — use only if user specifically requests):
 Inter, Roboto, Arial, Helvetica, Open Sans, Lato, Montserrat, Poppins
 
-**AI 슬롭 안티패턴** (추천에 절대 포함 금지):
-- 기본 액센트로 보라/바이올렛 그라디언트
-- 색상 원 안에 아이콘이 있는 3컬럼 기능 그리드
-- 균일한 간격으로 모든 것을 중앙 정렬
-- 모든 요소에 균일한 둥근 border-radius
-- 주요 CTA 패턴으로 그라디언트 버튼
-- 일반적인 스톡 사진 스타일의 히어로 섹션
-- "Built for X" / "Designed for Y" 마케팅 카피 패턴
+**AI slop anti-patterns** (never include in your recommendations):
+- Purple/violet gradients as default accent
+- 3-column feature grid with icons in colored circles
+- Centered everything with uniform spacing
+- Uniform bubbly border-radius on all elements
+- Gradient buttons as the primary CTA pattern
+- Generic stock-photo-style hero sections
+- "Built for X" / "Designed for Y" marketing copy patterns
 
-### 일관성 검증
+### Coherence Validation
 
-사용자가 한 섹션을 변경할 때 나머지가 여전히 일관되는지 확인합니다. 불일치는 부드럽게 지적합니다 — 절대 차단하지 않습니다:
+When the user overrides one section, check if the rest still coheres. Flag mismatches with a gentle nudge — never block:
 
-- Brutalist/Minimal 미적 + expressive 모션 → "참고: brutalist 미학은 보통 minimal 모션과 잘 어울립니다. 이 조합은 이례적인데 — 의도적이라면 괜찮습니다. 어울리는 모션을 제안할까요, 아니면 그대로 유지할까요?"
-- Expressive 색상 + restrained 장식 → "대담한 팔레트에 minimal 장식이 가능하지만 색상이 많은 부담을 질 수 있습니다. 팔레트를 지지하는 장식을 제안할까요?"
-- Creative-editorial 레이아웃 + 데이터 중심 제품 → "에디토리얼 레이아웃은 아름답지만 데이터 밀도와 충돌할 수 있습니다. 두 가지를 모두 살리는 hybrid 접근을 보여드릴까요?"
-- 항상 사용자의 최종 선택을 받아들입니다. 절대 진행을 거부하거나 차단하지 않습니다.
-
----
-
-## Phase 4: 세부 조정 (사용자가 요청한 경우에만)
-
-사용자가 특정 섹션을 변경하고 싶을 때, 해당 섹션을 깊이 파고듭니다:
-
-- **폰트:** 근거와 함께 3~5개의 구체적인 후보를 제시하고, 각각이 어떤 느낌을 주는지 설명하고, 미리보기 페이지를 제안합니다
-- **색상:** hex 값과 함께 2~3개의 팔레트 옵션을 제시하고, 색채 이론 근거를 설명합니다
-- **미적 방향:** 어떤 방향이 제품에 맞는지, 왜 맞는지 설명합니다
-- **레이아웃/간격/모션:** 제품 유형에 대한 구체적인 트레이드오프와 함께 접근 방식을 제시합니다
-
-각 세부 조정은 하나의 집중된 AskUserQuestion입니다. 사용자가 결정한 후 시스템의 나머지 부분과 일관성을 다시 확인합니다.
+- Brutalist/Minimal aesthetic + expressive motion → "Heads up: brutalist aesthetics usually pair with minimal motion. Your combo is unusual — which is fine if intentional. Want me to suggest motion that fits, or keep it?"
+- Expressive color + restrained decoration → "Bold palette with minimal decoration can work, but the colors will carry a lot of weight. Want me to suggest decoration that supports the palette?"
+- Creative-editorial layout + data-heavy product → "Editorial layouts are gorgeous but can fight data density. Want me to show how a hybrid approach keeps both?"
+- Always accept the user's final choice. Never refuse to proceed.
 
 ---
 
-## Phase 5: 폰트 & 색상 미리보기 페이지 (기본 ON)
+## Phase 4: Drill-downs (only if user requests adjustments)
 
-세련된 HTML 미리보기 페이지를 생성하고 사용자의 브라우저에서 엽니다. 이 페이지는 스킬이 생성하는 첫 번째 시각적 결과물입니다 — 아름답게 보여야 합니다.
+When the user wants to change a specific section, go deep on that section:
+
+- **Fonts:** Present 3-5 specific candidates with rationale, explain what each evokes, offer the preview page
+- **Colors:** Present 2-3 palette options with hex values, explain the color theory reasoning
+- **Aesthetic:** Walk through which directions fit their product and why
+- **Layout/Spacing/Motion:** Present the approaches with concrete tradeoffs for their product type
+
+Each drill-down is one focused AskUserQuestion. After the user decides, re-check coherence with the rest of the system.
+
+---
+
+## Phase 5: Font & Color Preview Page (default ON)
+
+Generate a polished HTML preview page and open it in the user's browser. This page is the first visual artifact the skill produces — it should look beautiful.
 
 ```bash
 PREVIEW_FILE="/tmp/design-consultation-preview-$(date +%s).html"
 ```
 
-미리보기 HTML을 `$PREVIEW_FILE`에 작성하고 엽니다:
+Write the preview HTML to `$PREVIEW_FILE`, then open it:
 
 ```bash
 open "$PREVIEW_FILE"
 ```
 
-### 미리보기 페이지 요구사항
+### Preview Page Requirements
 
-에이전트는 **단일, 독립적인 HTML 파일** (프레임워크 의존성 없음)을 작성합니다:
+The agent writes a **single, self-contained HTML file** (no framework dependencies) that:
 
-1. **제안된 폰트를** Google Fonts (또는 Bunny Fonts)에서 `<link>` 태그로 로드합니다
-2. **제안된 색상 팔레트를** 전반적으로 사용합니다 — 디자인 시스템을 직접 적용합니다
-3. **제품 이름을** 히어로 제목으로 표시합니다 ("Lorem Ipsum"이 아닌)
-4. **폰트 비교 섹션:**
-   - 각 폰트 후보를 제안된 역할로 표시 (히어로 제목, 본문 단락, 버튼 레이블, 데이터 테이블 행)
-   - 하나의 역할에 여러 후보가 있으면 나란히 비교
-   - 제품에 맞는 실제 콘텐츠 (예: civic tech → 정부 데이터 예시)
-5. **색상 팔레트 섹션:**
-   - hex 값과 이름이 있는 스와치
-   - 팔레트로 렌더링된 샘플 UI 컴포넌트: 버튼(primary, secondary, ghost), 카드, 폼 입력, 알림(success, warning, error, info)
-   - 대비를 보여주는 배경/텍스트 색상 조합
-6. **CSS custom properties와 JS 토글 버튼을 사용한 라이트/다크 모드 토글**
-7. **깔끔하고 전문적인 레이아웃** — 미리보기 페이지 자체가 스킬의 취향을 보여줍니다
-8. **반응형** — 어떤 화면 너비에서도 잘 보입니다
+1. **Loads proposed fonts** from Google Fonts (or Bunny Fonts) via `<link>` tags
+2. **Uses the proposed color palette** throughout — dogfood the design system
+3. **Shows the product name** (not "Lorem Ipsum") as the hero heading
+4. **Font specimen section:**
+   - Each font candidate shown in its proposed role (hero heading, body paragraph, button label, data table row)
+   - Side-by-side comparison if multiple candidates for one role
+   - Real content that matches the product (e.g., civic tech → government data examples)
+5. **Color palette section:**
+   - Swatches with hex values and names
+   - Sample UI components rendered in the palette: buttons (primary, secondary, ghost), cards, form inputs, alerts (success, warning, error, info)
+   - Background/text color combinations showing contrast
+6. **Realistic product mockups** — this is what makes the preview page powerful. Based on the project type from Phase 1, render 2-3 realistic page layouts using the full design system:
+   - **Dashboard / web app:** sample data table with metrics, sidebar nav, header with user avatar, stat cards
+   - **Marketing site:** hero section with real copy, feature highlights, testimonial block, CTA
+   - **Settings / admin:** form with labeled inputs, toggle switches, dropdowns, save button
+   - **Auth / onboarding:** login form with social buttons, branding, input validation states
+   - Use the product name, realistic content for the domain, and the proposed spacing/layout/border-radius. The user should see their product (roughly) before writing any code.
+7. **Light/dark mode toggle** using CSS custom properties and a JS toggle button
+8. **Clean, professional layout** — the preview page IS a taste signal for the skill
+9. **Responsive** — looks good on any screen width
 
-이 페이지는 사용자가 "오, 이건 신경을 썼네"라고 생각하게 해야 합니다. hex 코드를 나열하는 것이 아니라 시각적으로 디자인 시스템을 판매하는 것입니다.
+The page should make the user think "oh nice, they thought of this." It's selling the design system by showing what the product could feel like, not just listing hex codes and font names.
 
-`open`이 실패하면 (헤드리스 환경): *"[경로]에 미리보기를 작성했습니다 — 브라우저에서 열어 폰트와 색상 렌더링을 확인하세요."*
+If `open` fails (headless environment), tell the user: *"I wrote the preview to [path] — open it in your browser to see the fonts and colors rendered."*
 
-사용자가 미리보기를 건너뛰겠다고 하면 바로 Phase 6으로 이동합니다.
+If the user says skip the preview, go directly to Phase 6.
 
 ---
 
-## Phase 6: DESIGN.md 작성 및 확인
+## Phase 6: Write DESIGN.md & Confirm
 
-이 구조로 저장소 루트에 `DESIGN.md`를 작성합니다:
+Write `DESIGN.md` to the repo root with this structure:
 
 ```markdown
 # Design System — [Project Name]
@@ -350,7 +655,7 @@ open "$PREVIEW_FILE"
 | [today] | Initial design system created | Created by /design-consultation based on [product context / research] |
 ```
 
-**CLAUDE.md 업데이트** (없으면 생성) — 다음 섹션을 추가합니다:
+**Update CLAUDE.md** (or create it if it doesn't exist) — append this section:
 
 ```markdown
 ## Design System
@@ -360,22 +665,22 @@ Do not deviate without explicit user approval.
 In QA mode, flag any code that doesn't match DESIGN.md.
 ```
 
-**AskUserQuestion Q-final — 요약 표시 및 확인:**
+**AskUserQuestion Q-final — show summary and confirm:**
 
-모든 결정 사항을 나열합니다. 사용자의 명시적 확인 없이 에이전트 기본값을 사용한 것이 있으면 표시합니다(사용자는 무엇이 적용되는지 알아야 합니다). 선택지:
-- A) 적용합니다 — DESIGN.md와 CLAUDE.md 작성
-- B) 변경하고 싶습니다 (무엇을 바꿀지 지정)
-- C) 처음부터 다시 시작
+List all decisions. Flag any that used agent defaults without explicit user confirmation (the user should know what they're shipping). Options:
+- A) Ship it — write DESIGN.md and CLAUDE.md
+- B) I want to change something (specify what)
+- C) Start over
 
 ---
 
-## 중요 규칙
+## Important Rules
 
-1. **메뉴 나열이 아닌 제안.** 당신은 컨설턴트이지 양식이 아닙니다. 제품 컨텍스트를 바탕으로 확신 있는 추천을 하고, 사용자가 조정할 수 있도록 합니다.
-2. **모든 추천에는 근거가 필요합니다.** "Y 때문에" 없이 "X를 추천합니다"라고만 말하지 않습니다.
-3. **개별 선택보다 일관성.** 각 부분이 서로를 강화하는 디자인 시스템이, 개별적으로는 "최적"이지만 서로 맞지 않는 선택들의 시스템보다 낫습니다.
-4. **블랙리스트되거나 남용된 폰트를 주요로 추천하지 않습니다.** 사용자가 특별히 요청하면 따르되 트레이드오프를 설명합니다.
-5. **미리보기 페이지는 반드시 아름다워야 합니다.** 첫 번째 시각적 결과물이며 전체 스킬의 분위기를 결정합니다.
-6. **대화적 톤.** 이것은 경직된 워크플로우가 아닙니다. 사용자가 결정에 대해 이야기하고 싶다면, 사려 깊은 디자인 파트너로 참여합니다.
-7. **사용자의 최종 선택을 받아들입니다.** 일관성 문제에 대해 부드럽게 지적하되, 선택에 동의하지 않는다고 DESIGN.md 작성을 차단하거나 거부하지 않습니다.
-8. **결과물에 AI 슬롭 없음.** 당신의 추천, 미리보기 페이지, DESIGN.md — 모두 사용자에게 채택을 권하는 그 취향을 직접 보여줘야 합니다.
+1. **Propose, don't present menus.** You are a consultant, not a form. Make opinionated recommendations based on the product context, then let the user adjust.
+2. **Every recommendation needs a rationale.** Never say "I recommend X" without "because Y."
+3. **Coherence over individual choices.** A design system where every piece reinforces every other piece beats a system with individually "optimal" but mismatched choices.
+4. **Never recommend blacklisted or overused fonts as primary.** If the user specifically requests one, comply but explain the tradeoff.
+5. **The preview page must be beautiful.** It's the first visual output and sets the tone for the whole skill.
+6. **Conversational tone.** This isn't a rigid workflow. If the user wants to talk through a decision, engage as a thoughtful design partner.
+7. **Accept the user's final choice.** Nudge on coherence issues, but never block or refuse to write a DESIGN.md because you disagree with a choice.
+8. **No AI slop in your own output.** Your recommendations, your preview page, your DESIGN.md — all should demonstrate the taste you're asking the user to adopt.

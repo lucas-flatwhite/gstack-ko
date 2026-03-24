@@ -1,9 +1,11 @@
 ---
 name: ship
+preamble-tier: 4
 version: 1.0.0
 description: |
-  Ship 워크플로: base 브랜치 감지 및 merge, 테스트 실행, diff 리뷰, VERSION 업데이트, CHANGELOG 작성, commit, push, PR 생성.
-  "ship 해줘", "배포해줘", "main으로 푸시", "PR 만들어줘", "머지하고 푸시" 요청 시 사용하세요.
+  MANUAL TRIGGER ONLY: invoke only when user types /ship.
+  Ship workflow: detect + merge base branch, run tests, review diff, bump VERSION, update CHANGELOG, commit, push, create PR. Use when asked to "ship", "deploy", "push to main", "create a PR", or "merge and push".
+  Proactively suggest when the user says code is ready or asks about deploying.
 allowed-tools:
   - Bash
   - Read
@@ -11,13 +13,14 @@ allowed-tools:
   - Edit
   - Grep
   - Glob
+  - Agent
   - AskUserQuestion
   - WebSearch
 ---
 <!-- AUTO-GENERATED from SKILL.md.tmpl — do not edit directly -->
 <!-- Regenerate: bun run gen:skill-docs -->
 
-## Preamble (먼저 실행)
+## Preamble (run first)
 
 ```bash
 _UPD=$(~/.claude/skills/gstack/bin/gstack-update-check 2>/dev/null || .claude/skills/gstack/bin/gstack-update-check 2>/dev/null || true)
@@ -27,135 +30,559 @@ touch ~/.gstack/sessions/"$PPID"
 _SESSIONS=$(find ~/.gstack/sessions -mmin -120 -type f 2>/dev/null | wc -l | tr -d ' ')
 find ~/.gstack/sessions -mmin +120 -type f -delete 2>/dev/null || true
 _CONTRIB=$(~/.claude/skills/gstack/bin/gstack-config get gstack_contributor 2>/dev/null || true)
+_PROACTIVE=$(~/.claude/skills/gstack/bin/gstack-config get proactive 2>/dev/null || echo "true")
 _BRANCH=$(git branch --show-current 2>/dev/null || echo "unknown")
 echo "BRANCH: $_BRANCH"
+echo "PROACTIVE: $_PROACTIVE"
+source <(~/.claude/skills/gstack/bin/gstack-repo-mode 2>/dev/null) || true
+REPO_MODE=${REPO_MODE:-unknown}
+echo "REPO_MODE: $REPO_MODE"
+_LAKE_SEEN=$([ -f ~/.gstack/.completeness-intro-seen ] && echo "yes" || echo "no")
+echo "LAKE_INTRO: $_LAKE_SEEN"
+_TEL=$(~/.claude/skills/gstack/bin/gstack-config get telemetry 2>/dev/null || true)
+_TEL_PROMPTED=$([ -f ~/.gstack/.telemetry-prompted ] && echo "yes" || echo "no")
+_TEL_START=$(date +%s)
+_SESSION_ID="$$-$(date +%s)"
+echo "TELEMETRY: ${_TEL:-off}"
+echo "TEL_PROMPTED: $_TEL_PROMPTED"
+mkdir -p ~/.gstack/analytics
+echo '{"skill":"ship","ts":"'$(date -u +%Y-%m-%dT%H:%M:%SZ)'","repo":"'$(basename "$(git rev-parse --show-toplevel 2>/dev/null)" 2>/dev/null || echo "unknown")'"}'  >> ~/.gstack/analytics/skill-usage.jsonl 2>/dev/null || true
+# zsh-compatible: use find instead of glob to avoid NOMATCH error
+for _PF in $(find ~/.gstack/analytics -maxdepth 1 -name '.pending-*' 2>/dev/null); do [ -f "$_PF" ] && ~/.claude/skills/gstack/bin/gstack-telemetry-log --event-type skill_run --skill _pending_finalize --outcome unknown --session-id "$_SESSION_ID" 2>/dev/null || true; break; done
 ```
 
-출력에 `UPGRADE_AVAILABLE <old> <new>`가 표시되면: `~/.claude/skills/gstack/gstack-upgrade/SKILL.md`를 읽고 "Inline upgrade flow"를 따르세요 (자동 업그레이드가 설정된 경우 자동 업그레이드, 그렇지 않으면 4개 옵션으로 AskUserQuestion 표시, 거절 시 snooze 상태 기록). `JUST_UPGRADED <from> <to>`가 표시되면: 사용자에게 "Running gstack v{to} (just updated!)"라고 알리고 계속 진행하세요.
+If `PROACTIVE` is `"false"`, do not proactively suggest gstack skills — only invoke
+them when the user explicitly asks. The user opted out of proactive suggestions.
 
-## AskUserQuestion 형식
+If output shows `UPGRADE_AVAILABLE <old> <new>`: read `~/.claude/skills/gstack/gstack-upgrade/SKILL.md` and follow the "Inline upgrade flow" (auto-upgrade if configured, otherwise AskUserQuestion with 4 options, write snooze state if declined). If `JUST_UPGRADED <from> <to>`: tell user "Running gstack v{to} (just updated!)" and continue.
 
-**모든 AskUserQuestion 호출 시 반드시 이 구조를 따르세요:**
-1. **Re-ground:** 프로젝트, 현재 브랜치(preamble에서 출력된 `_BRANCH` 값 사용 — 대화 히스토리나 gitStatus의 브랜치 사용 금지), 현재 계획/작업을 명시합니다. (1-2문장)
-2. **Simplify:** 똑똑한 16세도 이해할 수 있는 평이한 말로 문제를 설명합니다. 함수명 그대로, 내부 전문 용어, 구현 세부사항은 사용하지 않습니다. 구체적인 예시와 비유를 사용합니다. 어떻게 구현됐는지가 아니라 무엇을 하는지 설명합니다.
-3. **Recommend:** `RECOMMENDATION: Choose [X] because [한 줄 이유]`
-4. **Options:** 알파벳 옵션: `A) ... B) ... C) ...`
+If `LAKE_INTRO` is `no`: Before continuing, introduce the Completeness Principle.
+Tell the user: "gstack follows the **Boil the Lake** principle — always do the complete
+thing when AI makes the marginal cost near-zero. Read more: https://garryslist.org/posts/boil-the-ocean"
+Then offer to open the essay in their default browser:
 
-사용자가 20분 동안 이 창을 보지 않았고 코드도 열지 않았다고 가정하세요. 설명을 이해하기 위해 소스 코드를 직접 읽어야 한다면, 설명이 너무 복잡한 것입니다.
+```bash
+open https://garryslist.org/posts/boil-the-ocean
+touch ~/.gstack/.completeness-intro-seen
+```
 
-스킬별 지침에서 이 기본 형식 위에 추가 규칙을 적용할 수 있습니다.
+Only run `open` if the user says yes. Always run `touch` to mark as seen. This only happens once.
+
+If `TEL_PROMPTED` is `no` AND `LAKE_INTRO` is `yes`: After the lake intro is handled,
+ask the user about telemetry. Use AskUserQuestion:
+
+> Help gstack get better! Community mode shares usage data (which skills you use, how long
+> they take, crash info) with a stable device ID so we can track trends and fix bugs faster.
+> No code, file paths, or repo names are ever sent.
+> Change anytime with `gstack-config set telemetry off`.
+
+Options:
+- A) Help gstack get better! (recommended)
+- B) No thanks
+
+If A: run `~/.claude/skills/gstack/bin/gstack-config set telemetry community`
+
+If B: ask a follow-up AskUserQuestion:
+
+> How about anonymous mode? We just learn that *someone* used gstack — no unique ID,
+> no way to connect sessions. Just a counter that helps us know if anyone's out there.
+
+Options:
+- A) Sure, anonymous is fine
+- B) No thanks, fully off
+
+If B→A: run `~/.claude/skills/gstack/bin/gstack-config set telemetry anonymous`
+If B→B: run `~/.claude/skills/gstack/bin/gstack-config set telemetry off`
+
+Always run:
+```bash
+touch ~/.gstack/.telemetry-prompted
+```
+
+This only happens once. If `TEL_PROMPTED` is `yes`, skip this entirely.
+
+## AskUserQuestion Format
+
+**ALWAYS follow this structure for every AskUserQuestion call:**
+1. **Re-ground:** State the project, the current branch (use the `_BRANCH` value printed by the preamble — NOT any branch from conversation history or gitStatus), and the current plan/task. (1-2 sentences)
+2. **Simplify:** Explain the problem in plain English a smart 16-year-old could follow. No raw function names, no internal jargon, no implementation details. Use concrete examples and analogies. Say what it DOES, not what it's called.
+3. **Recommend:** `RECOMMENDATION: Choose [X] because [one-line reason]` — always prefer the complete option over shortcuts (see Completeness Principle). Include `Completeness: X/10` for each option. Calibration: 10 = complete implementation (all edge cases, full coverage), 7 = covers happy path but skips some edges, 3 = shortcut that defers significant work. If both options are 8+, pick the higher; if one is ≤5, flag it.
+4. **Options:** Lettered options: `A) ... B) ... C) ...` — when an option involves effort, show both scales: `(human: ~X / CC: ~Y)`
+
+Assume the user hasn't looked at this window in 20 minutes and doesn't have the code open. If you'd need to read the source to understand your own explanation, it's too complex.
+
+Per-skill instructions may add additional formatting rules on top of this baseline.
+
+## Completeness Principle — Boil the Lake
+
+AI makes completeness near-free. Always recommend the complete option over shortcuts — the delta is minutes with CC+gstack. A "lake" (100% coverage, all edge cases) is boilable; an "ocean" (full rewrite, multi-quarter migration) is not. Boil lakes, flag oceans.
+
+**Effort reference** — always show both scales:
+
+| Task type | Human team | CC+gstack | Compression |
+|-----------|-----------|-----------|-------------|
+| Boilerplate | 2 days | 15 min | ~100x |
+| Tests | 1 day | 15 min | ~50x |
+| Feature | 1 week | 30 min | ~30x |
+| Bug fix | 4 hours | 15 min | ~20x |
+
+Include `Completeness: X/10` for each option (10=all edge cases, 7=happy path, 3=shortcut).
+
+## Repo Ownership — See Something, Say Something
+
+`REPO_MODE` controls how to handle issues outside your branch:
+- **`solo`** — You own everything. Investigate and offer to fix proactively.
+- **`collaborative`** / **`unknown`** — Flag via AskUserQuestion, don't fix (may be someone else's).
+
+Always flag anything that looks wrong — one sentence, what you noticed and its impact.
+
+## Search Before Building
+
+Before building anything unfamiliar, **search first.** See `~/.claude/skills/gstack/ETHOS.md`.
+- **Layer 1** (tried and true) — don't reinvent. **Layer 2** (new and popular) — scrutinize. **Layer 3** (first principles) — prize above all.
+
+**Eureka:** When first-principles reasoning contradicts conventional wisdom, name it and log:
+```bash
+jq -n --arg ts "$(date -u +%Y-%m-%dT%H:%M:%SZ)" --arg skill "SKILL_NAME" --arg branch "$(git branch --show-current 2>/dev/null)" --arg insight "ONE_LINE_SUMMARY" '{ts:$ts,skill:$skill,branch:$branch,insight:$insight}' >> ~/.gstack/analytics/eureka.jsonl 2>/dev/null || true
+```
 
 ## Contributor Mode
 
-`_CONTRIB`가 `true`이면: **contributor mode**입니다. gstack을 사용하면서 개선에도 기여하는 사용자입니다.
+If `_CONTRIB` is `true`: you are in **contributor mode**. At the end of each major workflow step, rate your gstack experience 0-10. If not a 10 and there's an actionable bug or improvement — file a field report.
 
-**각 주요 워크플로 단계 끝에서** (모든 단일 명령 후가 아니라), 사용한 gstack 툴링에 대해 돌아봅니다. 경험을 0~10점으로 평가합니다. 10점이 아니라면 그 이유를 생각해봅니다. 명확하고 실행 가능한 버그가 있거나, gstack 코드나 skill markdown이 더 잘할 수 있었던 통찰력 있는 부분이 있다면 — field report를 작성하세요. 기여자가 우리를 더 나아지게 도와줄 수도 있습니다!
+**File only:** gstack tooling bugs where the input was reasonable but gstack failed. **Skip:** user app bugs, network errors, auth failures on user's site.
 
-**기준 — 이것이 기준입니다:** 예를 들어, `$B js "await fetch(...)"` 명령이 예전에 `SyntaxError: await is only valid in async functions` 오류로 실패했습니다. gstack이 표현식을 async context로 감싸지 않았기 때문입니다. 작은 문제이지만, 입력은 합리적이었고 gstack이 처리했어야 했습니다 — 이런 것이 보고할 가치가 있는 사례입니다. 이보다 덜 중요한 것은 무시하세요.
-
-**보고할 가치 없는 것:** 사용자 앱 버그, 사용자 URL의 네트워크 오류, 사용자 사이트의 인증 실패, 사용자 자신의 JS 로직 버그.
-
-**보고 방법:** `~/.gstack/contributor-logs/{slug}.md`에 **아래 모든 섹션을** 포함하여 작성합니다 (절대 내용 생략 금지 — Date/Version footer까지 모든 섹션 포함):
-
+**To file:** write `~/.gstack/contributor-logs/{slug}.md`:
 ```
 # {Title}
-
-Hey gstack team — ran into this while using /{skill-name}:
-
-**What I was trying to do:** {what the user/agent was attempting}
-**What happened instead:** {what actually happened}
-**My rating:** {0-10} — {one sentence on why it wasn't a 10}
-
-## Steps to reproduce
+**What I tried:** {action} | **What happened:** {result} | **Rating:** {0-10}
+## Repro
 1. {step}
-
-## Raw output
-```
-{paste the actual error or unexpected output here}
-```
-
 ## What would make this a 10
-{one sentence: what gstack should have done differently}
+{one sentence}
+**Date:** {YYYY-MM-DD} | **Version:** {version} | **Skill:** /{skill}
+```
+Slug: lowercase hyphens, max 60 chars. Skip if exists. Max 3/session. File inline, don't stop.
 
-**Date:** {YYYY-MM-DD} | **Version:** {gstack version} | **Skill:** /{skill}
+## Completion Status Protocol
+
+When completing a skill workflow, report status using one of:
+- **DONE** — All steps completed successfully. Evidence provided for each claim.
+- **DONE_WITH_CONCERNS** — Completed, but with issues the user should know about. List each concern.
+- **BLOCKED** — Cannot proceed. State what is blocking and what was tried.
+- **NEEDS_CONTEXT** — Missing information required to continue. State exactly what you need.
+
+### Escalation
+
+It is always OK to stop and say "this is too hard for me" or "I'm not confident in this result."
+
+Bad work is worse than no work. You will not be penalized for escalating.
+- If you have attempted a task 3 times without success, STOP and escalate.
+- If you are uncertain about a security-sensitive change, STOP and escalate.
+- If the scope of work exceeds what you can verify, STOP and escalate.
+
+Escalation format:
+```
+STATUS: BLOCKED | NEEDS_CONTEXT
+REASON: [1-2 sentences]
+ATTEMPTED: [what you tried]
+RECOMMENDATION: [what the user should do next]
 ```
 
-Slug: 소문자, 하이픈 사용, 최대 60자 (예: `browse-js-no-await`). 파일이 이미 존재하면 건너뜁니다. 세션당 최대 3개 보고서. 워크플로를 멈추지 말고 인라인으로 작성하고 계속 진행합니다. 사용자에게: "Filed gstack field report: {title}"라고 알립니다.
+## Telemetry (run last)
 
-## Step 0: Base 브랜치 감지
+After the skill workflow completes (success, error, or abort), log the telemetry event.
+Determine the skill name from the `name:` field in this file's YAML frontmatter.
+Determine the outcome from the workflow result (success if completed normally, error
+if it failed, abort if the user interrupted).
 
-이 PR이 타겟하는 브랜치를 결정합니다. 이후 모든 단계에서 이 결과를 "base 브랜치"로 사용합니다.
+**PLAN MODE EXCEPTION — ALWAYS RUN:** This command writes telemetry to
+`~/.gstack/analytics/` (user config directory, not project files). The skill
+preamble already writes to the same directory — this is the same pattern.
+Skipping this command loses session duration and outcome data.
 
-1. 이 브랜치에 이미 PR이 존재하는지 확인합니다:
+Run this bash:
+
+```bash
+_TEL_END=$(date +%s)
+_TEL_DUR=$(( _TEL_END - _TEL_START ))
+rm -f ~/.gstack/analytics/.pending-"$_SESSION_ID" 2>/dev/null || true
+~/.claude/skills/gstack/bin/gstack-telemetry-log \
+  --skill "SKILL_NAME" --duration "$_TEL_DUR" --outcome "OUTCOME" \
+  --used-browse "USED_BROWSE" --session-id "$_SESSION_ID" 2>/dev/null &
+```
+
+Replace `SKILL_NAME` with the actual skill name from frontmatter, `OUTCOME` with
+success/error/abort, and `USED_BROWSE` with true/false based on whether `$B` was used.
+If you cannot determine the outcome, use "unknown". This runs in the background and
+never blocks the user.
+
+## Plan Status Footer
+
+When you are in plan mode and about to call ExitPlanMode:
+
+1. Check if the plan file already has a `## GSTACK REVIEW REPORT` section.
+2. If it DOES — skip (a review skill already wrote a richer report).
+3. If it does NOT — run this command:
+
+\`\`\`bash
+~/.claude/skills/gstack/bin/gstack-review-read
+\`\`\`
+
+Then write a `## GSTACK REVIEW REPORT` section to the end of the plan file:
+
+- If the output contains review entries (JSONL lines before `---CONFIG---`): format the
+  standard report table with runs/status/findings per skill, same format as the review
+  skills use.
+- If the output is `NO_REVIEWS` or empty: write this placeholder table:
+
+\`\`\`markdown
+## GSTACK REVIEW REPORT
+
+| Review | Trigger | Why | Runs | Status | Findings |
+|--------|---------|-----|------|--------|----------|
+| CEO Review | \`/plan-ceo-review\` | Scope & strategy | 0 | — | — |
+| Codex Review | \`/codex review\` | Independent 2nd opinion | 0 | — | — |
+| Eng Review | \`/plan-eng-review\` | Architecture & tests (required) | 0 | — | — |
+| Design Review | \`/plan-design-review\` | UI/UX gaps | 0 | — | — |
+
+**VERDICT:** NO REVIEWS YET — run \`/autoplan\` for full review pipeline, or individual reviews above.
+\`\`\`
+
+**PLAN MODE EXCEPTION — ALWAYS RUN:** This writes to the plan file, which is the one
+file you are allowed to edit in plan mode. The plan file review report is part of the
+plan's living status.
+
+## Step 0: Detect base branch
+
+Determine which branch this PR targets. Use the result as "the base branch" in all subsequent steps.
+
+1. Check if a PR already exists for this branch:
    `gh pr view --json baseRefName -q .baseRefName`
-   성공하면 출력된 브랜치 이름을 base 브랜치로 사용합니다.
+   If this succeeds, use the printed branch name as the base branch.
 
-2. PR이 없으면 (명령 실패 시), 저장소의 default 브랜치를 감지합니다:
+2. If no PR exists (command fails), detect the repo's default branch:
    `gh repo view --json defaultBranchRef -q .defaultBranchRef.name`
 
-3. 두 명령 모두 실패하면 `main`으로 폴백합니다.
+3. If both commands fail, fall back to `main`.
 
-감지된 base 브랜치 이름을 출력합니다. 이후 모든 `git diff`, `git log`,
-`git fetch`, `git merge`, `gh pr create` 명령에서 "the base branch"라고 표시된 부분을 감지된 브랜치 이름으로 대체합니다.
-
----
-
-# Ship: 완전 자동화 Ship 워크플로
-
-`/ship` 워크플로를 실행 중입니다. 이것은 **비대화형, 완전 자동화** 워크플로입니다. 어떤 단계에서도 확인을 요청하지 않습니다. 사용자가 `/ship`을 입력했다는 것은 실행하라는 의미입니다. 끝까지 진행하고 마지막에 PR URL을 출력합니다.
-
-**중지할 상황:**
-- base 브랜치에 있는 경우 (중단)
-- 자동으로 해결할 수 없는 merge 충돌 (중지, 충돌 표시)
-- 테스트 실패 (중지, 실패 내용 표시)
-- Pre-landing 리뷰에서 사용자 판단이 필요한 ASK 항목 발견
-- MINOR 또는 MAJOR 버전 업 필요 (질문 — Step 4 참조)
-- 사용자 결정이 필요한 Greptile 리뷰 코멘트 (복잡한 수정, false positive)
-- TODOS.md가 없고 사용자가 생성을 원하는 경우 (질문 — Step 5.5 참조)
-- TODOS.md가 정리되지 않았고 사용자가 재정리를 원하는 경우 (질문 — Step 5.5 참조)
-
-**중지하지 않을 상황:**
-- 미커밋 변경사항 (항상 포함)
-- 버전 업 선택 (MICRO 또는 PATCH 자동 선택 — Step 4 참조)
-- CHANGELOG 내용 (diff에서 자동 생성)
-- commit 메시지 승인 (자동 commit)
-- 다중 파일 변경셋 (bisectable commit으로 자동 분리)
-- TODOS.md 완료 항목 감지 (자동 표시)
-- 자동 수정 가능한 리뷰 발견 사항 (데드 코드, N+1, 오래된 주석 — 자동 수정)
+Print the detected base branch name. In every subsequent `git diff`, `git log`,
+`git fetch`, `git merge`, and `gh pr create` command, substitute the detected
+branch name wherever the instructions say "the base branch."
 
 ---
 
-## Step 1: Pre-flight 확인
+# Ship: Fully Automated Ship Workflow
 
-1. 현재 브랜치를 확인합니다. base 브랜치나 저장소의 default 브랜치에 있다면 **중단**: "You're on the base branch. Ship from a feature branch."
+You are running the `/ship` workflow. This is a **non-interactive, fully automated** workflow. Do NOT ask for confirmation at any step. The user said `/ship` which means DO IT. Run straight through and output the PR URL at the end.
 
-2. `git status`를 실행합니다 (`-uall` 사용 금지). 미커밋 변경사항은 항상 포함됩니다 — 질문할 필요 없습니다.
+**Only stop for:**
+- On the base branch (abort)
+- Merge conflicts that can't be auto-resolved (stop, show conflicts)
+- In-branch test failures (pre-existing failures are triaged, not auto-blocking)
+- Pre-landing review finds ASK items that need user judgment
+- MINOR or MAJOR version bump needed (ask — see Step 4)
+- Greptile review comments that need user decision (complex fixes, false positives)
+- TODOS.md missing and user wants to create one (ask — see Step 5.5)
+- TODOS.md disorganized and user wants to reorganize (ask — see Step 5.5)
 
-3. `git diff <base>...HEAD --stat`과 `git log <base>..HEAD --oneline`을 실행하여 ship될 내용을 파악합니다.
+**Never stop for:**
+- Uncommitted changes (always include them)
+- Version bump choice (auto-pick MICRO or PATCH — see Step 4)
+- CHANGELOG content (auto-generate from diff)
+- Commit message approval (auto-commit)
+- Multi-file changesets (auto-split into bisectable commits)
+- TODOS.md completed-item detection (auto-mark)
+- Auto-fixable review findings (dead code, N+1, stale comments — fixed automatically)
+- Test coverage gaps (auto-generate and commit, or flag in PR body)
 
 ---
 
-## Step 2: Base 브랜치 Merge (테스트 전)
+## Step 1: Pre-flight
 
-테스트가 merge된 상태에서 실행되도록 base 브랜치를 feature 브랜치에 fetch하고 merge합니다:
+1. Check the current branch. If on the base branch or the repo's default branch, **abort**: "You're on the base branch. Ship from a feature branch."
+
+2. Run `git status` (never use `-uall`). Uncommitted changes are always included — no need to ask.
+
+3. Run `git diff <base>...HEAD --stat` and `git log <base>..HEAD --oneline` to understand what's being shipped.
+
+4. Check review readiness:
+
+## Review Readiness Dashboard
+
+After completing the review, read the review log and config to display the dashboard.
+
+```bash
+~/.claude/skills/gstack/bin/gstack-review-read
+```
+
+Parse the output. Find the most recent entry for each skill (plan-ceo-review, plan-eng-review, review, plan-design-review, design-review-lite, adversarial-review, codex-review, codex-plan-review). Ignore entries with timestamps older than 7 days. For the Eng Review row, show whichever is more recent between `review` (diff-scoped pre-landing review) and `plan-eng-review` (plan-stage architecture review). Append "(DIFF)" or "(PLAN)" to the status to distinguish. For the Adversarial row, show whichever is more recent between `adversarial-review` (new auto-scaled) and `codex-review` (legacy). For Design Review, show whichever is more recent between `plan-design-review` (full visual audit) and `design-review-lite` (code-level check). Append "(FULL)" or "(LITE)" to the status to distinguish. Display:
+
+```
++====================================================================+
+|                    REVIEW READINESS DASHBOARD                       |
++====================================================================+
+| Review          | Runs | Last Run            | Status    | Required |
+|-----------------|------|---------------------|-----------|----------|
+| Eng Review      |  1   | 2026-03-16 15:00    | CLEAR     | YES      |
+| CEO Review      |  0   | —                   | —         | no       |
+| Design Review   |  0   | —                   | —         | no       |
+| Adversarial     |  0   | —                   | —         | no       |
+| Outside Voice   |  0   | —                   | —         | no       |
++--------------------------------------------------------------------+
+| VERDICT: CLEARED — Eng Review passed                                |
++====================================================================+
+```
+
+**Review tiers:**
+- **Eng Review (required by default):** The only review that gates shipping. Covers architecture, code quality, tests, performance. Can be disabled globally with \`gstack-config set skip_eng_review true\` (the "don't bother me" setting).
+- **CEO Review (optional):** Use your judgment. Recommend it for big product/business changes, new user-facing features, or scope decisions. Skip for bug fixes, refactors, infra, and cleanup.
+- **Design Review (optional):** Use your judgment. Recommend it for UI/UX changes. Skip for backend-only, infra, or prompt-only changes.
+- **Adversarial Review (automatic):** Auto-scales by diff size. Small diffs (<50 lines) skip adversarial. Medium diffs (50–199) get cross-model adversarial. Large diffs (200+) get all 4 passes: Claude structured, Codex structured, Claude adversarial subagent, Codex adversarial. No configuration needed.
+- **Outside Voice (optional):** Independent plan review from a different AI model. Offered after all review sections complete in /plan-ceo-review and /plan-eng-review. Falls back to Claude subagent if Codex is unavailable. Never gates shipping.
+
+**Verdict logic:**
+- **CLEARED**: Eng Review has >= 1 entry within 7 days from either \`review\` or \`plan-eng-review\` with status "clean" (or \`skip_eng_review\` is \`true\`)
+- **NOT CLEARED**: Eng Review missing, stale (>7 days), or has open issues
+- CEO, Design, and Codex reviews are shown for context but never block shipping
+- If \`skip_eng_review\` config is \`true\`, Eng Review shows "SKIPPED (global)" and verdict is CLEARED
+
+**Staleness detection:** After displaying the dashboard, check if any existing reviews may be stale:
+- Parse the \`---HEAD---\` section from the bash output to get the current HEAD commit hash
+- For each review entry that has a \`commit\` field: compare it against the current HEAD. If different, count elapsed commits: \`git rev-list --count STORED_COMMIT..HEAD\`. Display: "Note: {skill} review from {date} may be stale — {N} commits since review"
+- For entries without a \`commit\` field (legacy entries): display "Note: {skill} review from {date} has no commit tracking — consider re-running for accurate staleness detection"
+- If all reviews match the current HEAD, do not display any staleness notes
+
+If the Eng Review is NOT "CLEAR":
+
+1. **Check for a prior override on this branch:**
+   ```bash
+   eval "$(~/.claude/skills/gstack/bin/gstack-slug 2>/dev/null)"
+   grep '"skill":"ship-review-override"' ~/.gstack/projects/$SLUG/$BRANCH-reviews.jsonl 2>/dev/null || echo "NO_OVERRIDE"
+   ```
+   If an override exists, display the dashboard and note "Review gate previously accepted — continuing." Do NOT ask again.
+
+2. **If no override exists,** use AskUserQuestion:
+   - Show that Eng Review is missing or has open issues
+   - RECOMMENDATION: Choose C if the change is obviously trivial (< 20 lines, typo fix, config-only); Choose B for larger changes
+   - Options: A) Ship anyway  B) Abort — run /review or /plan-eng-review first  C) Change is too small to need eng review
+   - If CEO Review is missing, mention as informational ("CEO Review not run — recommended for product changes") but do NOT block
+   - For Design Review: run `source <(~/.claude/skills/gstack/bin/gstack-diff-scope <base> 2>/dev/null)`. If `SCOPE_FRONTEND=true` and no design review (plan-design-review or design-review-lite) exists in the dashboard, mention: "Design Review not run — this PR changes frontend code. The lite design check will run automatically in Step 3.5, but consider running /design-review for a full visual audit post-implementation." Still never block.
+
+3. **If the user chooses A or C,** persist the decision so future `/ship` runs on this branch skip the gate:
+   ```bash
+   eval "$(~/.claude/skills/gstack/bin/gstack-slug 2>/dev/null)"
+   echo '{"skill":"ship-review-override","timestamp":"'"$(date -u +%Y-%m-%dT%H:%M:%SZ)"'","decision":"USER_CHOICE"}' >> ~/.gstack/projects/$SLUG/$BRANCH-reviews.jsonl
+   ```
+   Substitute USER_CHOICE with "ship_anyway" or "not_relevant".
+
+---
+
+## Step 1.5: Distribution Pipeline Check
+
+If the diff introduces a new standalone artifact (CLI binary, library package, tool) — not a web
+service with existing deployment — verify that a distribution pipeline exists.
+
+1. Check if the diff adds a new `cmd/` directory, `main.go`, or `bin/` entry point:
+   ```bash
+   git diff origin/<base> --name-only | grep -E '(cmd/.*/main\.go|bin/|Cargo\.toml|setup\.py|package\.json)' | head -5
+   ```
+
+2. If new artifact detected, check for a release workflow:
+   ```bash
+   ls .github/workflows/ 2>/dev/null | grep -iE 'release|publish|dist'
+   ```
+
+3. **If no release pipeline exists and a new artifact was added:** Use AskUserQuestion:
+   - "This PR adds a new binary/tool but there's no CI/CD pipeline to build and publish it.
+     Users won't be able to download the artifact after merge."
+   - A) Add a release workflow now (GitHub Actions cross-platform build + GitHub Releases)
+   - B) Defer — add to TODOS.md
+   - C) Not needed — this is internal/web-only, existing deployment covers it
+
+4. **If release pipeline exists:** Continue silently.
+5. **If no new artifact detected:** Skip silently.
+
+---
+
+## Step 2: Merge the base branch (BEFORE tests)
+
+Fetch and merge the base branch into the feature branch so tests run against the merged state:
 
 ```bash
 git fetch origin <base> && git merge origin/<base> --no-edit
 ```
 
-**merge 충돌이 있는 경우:** 단순한 충돌이면 자동 해결을 시도합니다 (VERSION, schema.rb, CHANGELOG 순서). 충돌이 복잡하거나 모호한 경우 **중지**하고 충돌을 표시합니다.
+**If there are merge conflicts:** Try to auto-resolve if they are simple (VERSION, schema.rb, CHANGELOG ordering). If conflicts are complex or ambiguous, **STOP** and show them.
 
-**이미 최신 상태인 경우:** 조용히 계속 진행합니다.
+**If already up to date:** Continue silently.
 
 ---
 
-## Step 3: 테스트 실행 (merge된 코드 기준)
+## Step 2.5: Test Framework Bootstrap
 
-**`RAILS_ENV=test bin/rails db:migrate`를 실행하지 마세요** — `bin/test-lane`이 내부적으로 이미
-`db:test:prepare`를 호출합니다. 이는 올바른 lane 데이터베이스에 스키마를 로드합니다.
-INSTANCE 없이 bare test migrations를 실행하면 orphan DB에 접근하여 structure.sql이 손상됩니다.
+## Test Framework Bootstrap
 
-두 테스트 스위트를 병렬로 실행합니다:
+**Detect existing test framework and project runtime:**
+
+```bash
+# Detect project runtime
+[ -f Gemfile ] && echo "RUNTIME:ruby"
+[ -f package.json ] && echo "RUNTIME:node"
+[ -f requirements.txt ] || [ -f pyproject.toml ] && echo "RUNTIME:python"
+[ -f go.mod ] && echo "RUNTIME:go"
+[ -f Cargo.toml ] && echo "RUNTIME:rust"
+[ -f composer.json ] && echo "RUNTIME:php"
+[ -f mix.exs ] && echo "RUNTIME:elixir"
+# Detect sub-frameworks
+[ -f Gemfile ] && grep -q "rails" Gemfile 2>/dev/null && echo "FRAMEWORK:rails"
+[ -f package.json ] && grep -q '"next"' package.json 2>/dev/null && echo "FRAMEWORK:nextjs"
+# Check for existing test infrastructure
+ls jest.config.* vitest.config.* playwright.config.* .rspec pytest.ini pyproject.toml phpunit.xml 2>/dev/null
+ls -d test/ tests/ spec/ __tests__/ cypress/ e2e/ 2>/dev/null
+# Check opt-out marker
+[ -f .gstack/no-test-bootstrap ] && echo "BOOTSTRAP_DECLINED"
+```
+
+**If test framework detected** (config files or test directories found):
+Print "Test framework detected: {name} ({N} existing tests). Skipping bootstrap."
+Read 2-3 existing test files to learn conventions (naming, imports, assertion style, setup patterns).
+Store conventions as prose context for use in Phase 8e.5 or Step 3.4. **Skip the rest of bootstrap.**
+
+**If BOOTSTRAP_DECLINED** appears: Print "Test bootstrap previously declined — skipping." **Skip the rest of bootstrap.**
+
+**If NO runtime detected** (no config files found): Use AskUserQuestion:
+"I couldn't detect your project's language. What runtime are you using?"
+Options: A) Node.js/TypeScript B) Ruby/Rails C) Python D) Go E) Rust F) PHP G) Elixir H) This project doesn't need tests.
+If user picks H → write `.gstack/no-test-bootstrap` and continue without tests.
+
+**If runtime detected but no test framework — bootstrap:**
+
+### B2. Research best practices
+
+Use WebSearch to find current best practices for the detected runtime:
+- `"[runtime] best test framework 2025 2026"`
+- `"[framework A] vs [framework B] comparison"`
+
+If WebSearch is unavailable, use this built-in knowledge table:
+
+| Runtime | Primary recommendation | Alternative |
+|---------|----------------------|-------------|
+| Ruby/Rails | minitest + fixtures + capybara | rspec + factory_bot + shoulda-matchers |
+| Node.js | vitest + @testing-library | jest + @testing-library |
+| Next.js | vitest + @testing-library/react + playwright | jest + cypress |
+| Python | pytest + pytest-cov | unittest |
+| Go | stdlib testing + testify | stdlib only |
+| Rust | cargo test (built-in) + mockall | — |
+| PHP | phpunit + mockery | pest |
+| Elixir | ExUnit (built-in) + ex_machina | — |
+
+### B3. Framework selection
+
+Use AskUserQuestion:
+"I detected this is a [Runtime/Framework] project with no test framework. I researched current best practices. Here are the options:
+A) [Primary] — [rationale]. Includes: [packages]. Supports: unit, integration, smoke, e2e
+B) [Alternative] — [rationale]. Includes: [packages]
+C) Skip — don't set up testing right now
+RECOMMENDATION: Choose A because [reason based on project context]"
+
+If user picks C → write `.gstack/no-test-bootstrap`. Tell user: "If you change your mind later, delete `.gstack/no-test-bootstrap` and re-run." Continue without tests.
+
+If multiple runtimes detected (monorepo) → ask which runtime to set up first, with option to do both sequentially.
+
+### B4. Install and configure
+
+1. Install the chosen packages (npm/bun/gem/pip/etc.)
+2. Create minimal config file
+3. Create directory structure (test/, spec/, etc.)
+4. Create one example test matching the project's code to verify setup works
+
+If package installation fails → debug once. If still failing → revert with `git checkout -- package.json package-lock.json` (or equivalent for the runtime). Warn user and continue without tests.
+
+### B4.5. First real tests
+
+Generate 3-5 real tests for existing code:
+
+1. **Find recently changed files:** `git log --since=30.days --name-only --format="" | sort | uniq -c | sort -rn | head -10`
+2. **Prioritize by risk:** Error handlers > business logic with conditionals > API endpoints > pure functions
+3. **For each file:** Write one test that tests real behavior with meaningful assertions. Never `expect(x).toBeDefined()` — test what the code DOES.
+4. Run each test. Passes → keep. Fails → fix once. Still fails → delete silently.
+5. Generate at least 1 test, cap at 5.
+
+Never import secrets, API keys, or credentials in test files. Use environment variables or test fixtures.
+
+### B5. Verify
+
+```bash
+# Run the full test suite to confirm everything works
+{detected test command}
+```
+
+If tests fail → debug once. If still failing → revert all bootstrap changes and warn user.
+
+### B5.5. CI/CD pipeline
+
+```bash
+# Check CI provider
+ls -d .github/ 2>/dev/null && echo "CI:github"
+ls .gitlab-ci.yml .circleci/ bitrise.yml 2>/dev/null
+```
+
+If `.github/` exists (or no CI detected — default to GitHub Actions):
+Create `.github/workflows/test.yml` with:
+- `runs-on: ubuntu-latest`
+- Appropriate setup action for the runtime (setup-node, setup-ruby, setup-python, etc.)
+- The same test command verified in B5
+- Trigger: push + pull_request
+
+If non-GitHub CI detected → skip CI generation with note: "Detected {provider} — CI pipeline generation supports GitHub Actions only. Add test step to your existing pipeline manually."
+
+### B6. Create TESTING.md
+
+First check: If TESTING.md already exists → read it and update/append rather than overwriting. Never destroy existing content.
+
+Write TESTING.md with:
+- Philosophy: "100% test coverage is the key to great vibe coding. Tests let you move fast, trust your instincts, and ship with confidence — without them, vibe coding is just yolo coding. With tests, it's a superpower."
+- Framework name and version
+- How to run tests (the verified command from B5)
+- Test layers: Unit tests (what, where, when), Integration tests, Smoke tests, E2E tests
+- Conventions: file naming, assertion style, setup/teardown patterns
+
+### B7. Update CLAUDE.md
+
+First check: If CLAUDE.md already has a `## Testing` section → skip. Don't duplicate.
+
+Append a `## Testing` section:
+- Run command and test directory
+- Reference to TESTING.md
+- Test expectations:
+  - 100% test coverage is the goal — tests make vibe coding safe
+  - When writing new functions, write a corresponding test
+  - When fixing a bug, write a regression test
+  - When adding error handling, write a test that triggers the error
+  - When adding a conditional (if/else, switch), write tests for BOTH paths
+  - Never commit code that makes existing tests fail
+
+### B8. Commit
+
+```bash
+git status --porcelain
+```
+
+Only commit if there are changes. Stage all bootstrap files (config, test directory, TESTING.md, CLAUDE.md, .github/workflows/test.yml if created):
+`git commit -m "chore: bootstrap test framework ({framework name})"`
+
+---
+
+---
+
+## Step 3: Run tests (on merged code)
+
+**Do NOT run `RAILS_ENV=test bin/rails db:migrate`** — `bin/test-lane` already calls
+`db:test:prepare` internally, which loads the schema into the correct lane database.
+Running bare test migrations without INSTANCE hits an orphan DB and corrupts structure.sql.
+
+Run both test suites in parallel:
 
 ```bash
 bin/test-lane 2>&1 | tee /tmp/ship_tests.txt &
@@ -163,272 +590,792 @@ npm run test 2>&1 | tee /tmp/ship_vitest.txt &
 wait
 ```
 
-둘 다 완료된 후 출력 파일을 읽고 통과/실패를 확인합니다.
+After both complete, read the output files and check pass/fail.
 
-**테스트가 실패하는 경우:** 실패 내용을 표시하고 **중지합니다**. 계속 진행하지 않습니다.
+**If any test fails:** Do NOT immediately stop. Apply the Test Failure Ownership Triage:
 
-**모두 통과하는 경우:** 조용히 계속 진행합니다 — 카운트만 간략히 메모합니다.
+## Test Failure Ownership Triage
+
+When tests fail, do NOT immediately stop. First, determine ownership:
+
+### Step T1: Classify each failure
+
+For each failing test:
+
+1. **Get the files changed on this branch:**
+   ```bash
+   git diff origin/<base>...HEAD --name-only
+   ```
+
+2. **Classify the failure:**
+   - **In-branch** if: the failing test file itself was modified on this branch, OR the test output references code that was changed on this branch, OR you can trace the failure to a change in the branch diff.
+   - **Likely pre-existing** if: neither the test file nor the code it tests was modified on this branch, AND the failure is unrelated to any branch change you can identify.
+   - **When ambiguous, default to in-branch.** It is safer to stop the developer than to let a broken test ship. Only classify as pre-existing when you are confident.
+
+   This classification is heuristic — use your judgment reading the diff and the test output. You do not have a programmatic dependency graph.
+
+### Step T2: Handle in-branch failures
+
+**STOP.** These are your failures. Show them and do not proceed. The developer must fix their own broken tests before shipping.
+
+### Step T3: Handle pre-existing failures
+
+Check `REPO_MODE` from the preamble output.
+
+**If REPO_MODE is `solo`:**
+
+Use AskUserQuestion:
+
+> These test failures appear pre-existing (not caused by your branch changes):
+>
+> [list each failure with file:line and brief error description]
+>
+> Since this is a solo repo, you're the only one who will fix these.
+>
+> RECOMMENDATION: Choose A — fix now while the context is fresh. Completeness: 9/10.
+> A) Investigate and fix now (human: ~2-4h / CC: ~15min) — Completeness: 10/10
+> B) Add as P0 TODO — fix after this branch lands — Completeness: 7/10
+> C) Skip — I know about this, ship anyway — Completeness: 3/10
+
+**If REPO_MODE is `collaborative` or `unknown`:**
+
+Use AskUserQuestion:
+
+> These test failures appear pre-existing (not caused by your branch changes):
+>
+> [list each failure with file:line and brief error description]
+>
+> This is a collaborative repo — these may be someone else's responsibility.
+>
+> RECOMMENDATION: Choose B — assign it to whoever broke it so the right person fixes it. Completeness: 9/10.
+> A) Investigate and fix now anyway — Completeness: 10/10
+> B) Blame + assign GitHub issue to the author — Completeness: 9/10
+> C) Add as P0 TODO — Completeness: 7/10
+> D) Skip — ship anyway — Completeness: 3/10
+
+### Step T4: Execute the chosen action
+
+**If "Investigate and fix now":**
+- Switch to /investigate mindset: root cause first, then minimal fix.
+- Fix the pre-existing failure.
+- Commit the fix separately from the branch's changes: `git commit -m "fix: pre-existing test failure in <test-file>"`
+- Continue with the workflow.
+
+**If "Add as P0 TODO":**
+- If `TODOS.md` exists, add the entry following the format in `review/TODOS-format.md` (or `.claude/skills/review/TODOS-format.md`).
+- If `TODOS.md` does not exist, create it with the standard header and add the entry.
+- Entry should include: title, the error output, which branch it was noticed on, and priority P0.
+- Continue with the workflow — treat the pre-existing failure as non-blocking.
+
+**If "Blame + assign GitHub issue" (collaborative only):**
+- Find who likely broke it. Check BOTH the test file AND the production code it tests:
+  ```bash
+  # Who last touched the failing test?
+  git log --format="%an (%ae)" -1 -- <failing-test-file>
+  # Who last touched the production code the test covers? (often the actual breaker)
+  git log --format="%an (%ae)" -1 -- <source-file-under-test>
+  ```
+  If these are different people, prefer the production code author — they likely introduced the regression.
+- Create a GitHub issue assigned to that person:
+  ```bash
+  gh issue create \
+    --title "Pre-existing test failure: <test-name>" \
+    --body "Found failing on branch <current-branch>. Failure is pre-existing.\n\n**Error:**\n```\n<first 10 lines>\n```\n\n**Last modified by:** <author>\n**Noticed by:** gstack /ship on <date>" \
+    --assignee "<github-username>"
+  ```
+- If `gh` is not available or `--assignee` fails (user not in org, etc.), create the issue without assignee and note who should look at it in the body.
+- Continue with the workflow.
+
+**If "Skip":**
+- Continue with the workflow.
+- Note in output: "Pre-existing test failure skipped: <test-name>"
+
+**After triage:** If any in-branch failures remain unfixed, **STOP**. Do not proceed. If all failures were pre-existing and handled (fixed, TODOed, assigned, or skipped), continue to Step 3.25.
+
+**If all pass:** Continue silently — just note the counts briefly.
 
 ---
 
-## Step 3.25: Eval 스위트 (조건부)
+## Step 3.25: Eval Suites (conditional)
 
-Eval은 프롬프트 관련 파일이 변경될 때 필수입니다. diff에 프롬프트 파일이 없으면 이 단계를 완전히 건너뜁니다.
+Evals are mandatory when prompt-related files change. Skip this step entirely if no prompt files are in the diff.
 
-**1. diff가 프롬프트 관련 파일에 영향을 미치는지 확인합니다:**
+**1. Check if the diff touches prompt-related files:**
 
 ```bash
 git diff origin/<base> --name-only
 ```
 
-다음 패턴과 대조합니다 (CLAUDE.md 기준):
+Match against these patterns (from CLAUDE.md):
 - `app/services/*_prompt_builder.rb`
 - `app/services/*_generation_service.rb`, `*_writer_service.rb`, `*_designer_service.rb`
 - `app/services/*_evaluator.rb`, `*_scorer.rb`, `*_classifier_service.rb`, `*_analyzer.rb`
 - `app/services/concerns/*voice*.rb`, `*writing*.rb`, `*prompt*.rb`, `*token*.rb`
 - `app/services/chat_tools/*.rb`, `app/services/x_thread_tools/*.rb`
 - `config/system_prompts/*.txt`
-- `test/evals/**/*` (eval 인프라 변경은 모든 스위트에 영향)
+- `test/evals/**/*` (eval infrastructure changes affect all suites)
 
-**일치하는 것이 없으면:** "No prompt-related files changed — skipping evals."를 출력하고 Step 3.5로 계속합니다.
+**If no matches:** Print "No prompt-related files changed — skipping evals." and continue to Step 3.5.
 
-**2. 영향받는 eval 스위트 식별:**
+**2. Identify affected eval suites:**
 
-각 eval runner (`test/evals/*_eval_runner.rb`)는 영향을 미치는 소스 파일 목록인 `PROMPT_SOURCE_FILES`를 선언합니다. 이를 grep하여 변경된 파일과 일치하는 스위트를 찾습니다:
+Each eval runner (`test/evals/*_eval_runner.rb`) declares `PROMPT_SOURCE_FILES` listing which source files affect it. Grep these to find which suites match the changed files:
 
 ```bash
 grep -l "changed_file_basename" test/evals/*_eval_runner.rb
 ```
 
-runner → test 파일 매핑: `post_generation_eval_runner.rb` → `post_generation_eval_test.rb`.
+Map runner → test file: `post_generation_eval_runner.rb` → `post_generation_eval_test.rb`.
 
-**특수 케이스:**
-- `test/evals/judges/*.rb`, `test/evals/support/*.rb`, `test/evals/fixtures/` 변경은 해당 judges/support 파일을 사용하는 모든 스위트에 영향을 미칩니다. eval test 파일의 import를 확인하여 어느 스위트가 해당하는지 파악합니다.
-- `config/system_prompts/*.txt` 변경 — eval runner에서 프롬프트 파일명을 grep하여 영향받는 스위트를 찾습니다.
-- 어느 스위트가 영향받는지 불확실한 경우, 영향받을 가능성이 있는 모든 스위트를 실행합니다. 과테스트가 회귀를 놓치는 것보다 낫습니다.
+**Special cases:**
+- Changes to `test/evals/judges/*.rb`, `test/evals/support/*.rb`, or `test/evals/fixtures/` affect ALL suites that use those judges/support files. Check imports in the eval test files to determine which.
+- Changes to `config/system_prompts/*.txt` — grep eval runners for the prompt filename to find affected suites.
+- If unsure which suites are affected, run ALL suites that could plausibly be impacted. Over-testing is better than missing a regression.
 
-**3. 영향받는 스위트를 `EVAL_JUDGE_TIER=full`로 실행합니다:**
+**3. Run affected suites at `EVAL_JUDGE_TIER=full`:**
 
-`/ship`은 pre-merge 게이트이므로 항상 full tier를 사용합니다 (Sonnet 구조 + Opus 페르소나 judges).
+`/ship` is a pre-merge gate, so always use full tier (Sonnet structural + Opus persona judges).
 
 ```bash
 EVAL_JUDGE_TIER=full EVAL_VERBOSE=1 bin/test-lane --eval test/evals/<suite>_eval_test.rb 2>&1 | tee /tmp/ship_evals.txt
 ```
 
-여러 스위트를 실행해야 하는 경우 순차적으로 실행합니다 (각각 test lane이 필요). 첫 번째 스위트가 실패하면 즉시 중지합니다 — 남은 스위트에 API 비용을 쓰지 않습니다.
+If multiple suites need to run, run them sequentially (each needs a test lane). If the first suite fails, stop immediately — don't burn API cost on remaining suites.
 
-**4. 결과 확인:**
+**4. Check results:**
 
-- **eval이 실패하는 경우:** 실패 내용, 비용 대시보드를 표시하고 **중지합니다**. 계속 진행하지 않습니다.
-- **모두 통과하는 경우:** 통과 카운트와 비용을 메모합니다. Step 3.5로 계속합니다.
+- **If any eval fails:** Show the failures, the cost dashboard, and **STOP**. Do not proceed.
+- **If all pass:** Note pass counts and cost. Continue to Step 3.5.
 
-**5. eval 출력 저장** — PR 본문에 eval 결과와 비용 대시보드를 포함합니다 (Step 8).
+**5. Save eval output** — include eval results and cost dashboard in the PR body (Step 8).
 
-**Tier 참조 (컨텍스트용 — /ship은 항상 `full` 사용):**
-| Tier | 사용 시점 | 속도 (캐시) | 비용 |
-|------|-----------|-------------|------|
-| `fast` (Haiku) | 개발 반복, 스모크 테스트 | ~5s (14x 빠름) | ~$0.07/run |
-| `standard` (Sonnet) | 기본 개발, `bin/test-lane --eval` | ~17s (4x 빠름) | ~$0.37/run |
-| `full` (Opus 페르소나) | **`/ship` 및 pre-merge** | ~72s (기준) | ~$1.27/run |
+**Tier reference (for context — /ship always uses `full`):**
+| Tier | When | Speed (cached) | Cost |
+|------|------|----------------|------|
+| `fast` (Haiku) | Dev iteration, smoke tests | ~5s (14x faster) | ~$0.07/run |
+| `standard` (Sonnet) | Default dev, `bin/test-lane --eval` | ~17s (4x faster) | ~$0.37/run |
+| `full` (Opus persona) | **`/ship` and pre-merge** | ~72s (baseline) | ~$1.27/run |
 
 ---
 
-## Step 3.5: Pre-Landing 리뷰
+## Step 3.4: Test Coverage Audit
 
-테스트로는 잡히지 않는 구조적 문제에 대해 diff를 리뷰합니다.
+100% coverage is the goal — every untested path is a path where bugs hide and vibe coding becomes yolo coding. Evaluate what was ACTUALLY coded (from the diff), not what was planned.
 
-1. `.claude/skills/review/checklist.md`를 읽습니다. 파일을 읽을 수 없으면 **중지**하고 오류를 보고합니다.
+### Test Framework Detection
 
-2. `git diff origin/<base>`를 실행하여 전체 diff를 가져옵니다 (최신 fetch된 base 브랜치 대비 feature 변경사항으로 범위 지정).
+Before analyzing coverage, detect the project's test framework:
 
-3. 두 번의 pass로 리뷰 체크리스트를 적용합니다:
-   - **Pass 1 (CRITICAL):** SQL & 데이터 안전성, LLM 출력 신뢰 경계
-   - **Pass 2 (INFORMATIONAL):** 나머지 모든 카테고리
+1. **Read CLAUDE.md** — look for a `## Testing` section with test command and framework name. If found, use that as the authoritative source.
+2. **If CLAUDE.md has no testing section, auto-detect:**
 
-4. checklist.md의 Fix-First Heuristic에 따라 **각 발견 사항을 AUTO-FIX 또는 ASK로 분류합니다**. Critical 발견은 ASK 쪽으로, informational은 AUTO-FIX 쪽으로 기웁니다.
+```bash
+# Detect project runtime
+[ -f Gemfile ] && echo "RUNTIME:ruby"
+[ -f package.json ] && echo "RUNTIME:node"
+[ -f requirements.txt ] || [ -f pyproject.toml ] && echo "RUNTIME:python"
+[ -f go.mod ] && echo "RUNTIME:go"
+[ -f Cargo.toml ] && echo "RUNTIME:rust"
+# Check for existing test infrastructure
+ls jest.config.* vitest.config.* playwright.config.* cypress.config.* .rspec pytest.ini phpunit.xml 2>/dev/null
+ls -d test/ tests/ spec/ __tests__/ cypress/ e2e/ 2>/dev/null
+```
 
-5. **모든 AUTO-FIX 항목을 자동 수정합니다.** 각 수정을 적용합니다. 수정당 한 줄을 출력합니다:
+3. **If no framework detected:** falls through to the Test Framework Bootstrap step (Step 2.5) which handles full setup.
+
+**0. Before/after test count:**
+
+```bash
+# Count test files before any generation
+find . -name '*.test.*' -o -name '*.spec.*' -o -name '*_test.*' -o -name '*_spec.*' | grep -v node_modules | wc -l
+```
+
+Store this number for the PR body.
+
+**1. Trace every codepath changed** using `git diff origin/<base>...HEAD`:
+
+Read every changed file. For each one, trace how data flows through the code — don't just list functions, actually follow the execution:
+
+1. **Read the diff.** For each changed file, read the full file (not just the diff hunk) to understand context.
+2. **Trace data flow.** Starting from each entry point (route handler, exported function, event listener, component render), follow the data through every branch:
+   - Where does input come from? (request params, props, database, API call)
+   - What transforms it? (validation, mapping, computation)
+   - Where does it go? (database write, API response, rendered output, side effect)
+   - What can go wrong at each step? (null/undefined, invalid input, network failure, empty collection)
+3. **Diagram the execution.** For each changed file, draw an ASCII diagram showing:
+   - Every function/method that was added or modified
+   - Every conditional branch (if/else, switch, ternary, guard clause, early return)
+   - Every error path (try/catch, rescue, error boundary, fallback)
+   - Every call to another function (trace into it — does IT have untested branches?)
+   - Every edge: what happens with null input? Empty array? Invalid type?
+
+This is the critical step — you're building a map of every line of code that can execute differently based on input. Every branch in this diagram needs a test.
+
+**2. Map user flows, interactions, and error states:**
+
+Code coverage isn't enough — you need to cover how real users interact with the changed code. For each changed feature, think through:
+
+- **User flows:** What sequence of actions does a user take that touches this code? Map the full journey (e.g., "user clicks 'Pay' → form validates → API call → success/failure screen"). Each step in the journey needs a test.
+- **Interaction edge cases:** What happens when the user does something unexpected?
+  - Double-click/rapid resubmit
+  - Navigate away mid-operation (back button, close tab, click another link)
+  - Submit with stale data (page sat open for 30 minutes, session expired)
+  - Slow connection (API takes 10 seconds — what does the user see?)
+  - Concurrent actions (two tabs, same form)
+- **Error states the user can see:** For every error the code handles, what does the user actually experience?
+  - Is there a clear error message or a silent failure?
+  - Can the user recover (retry, go back, fix input) or are they stuck?
+  - What happens with no network? With a 500 from the API? With invalid data from the server?
+- **Empty/zero/boundary states:** What does the UI show with zero results? With 10,000 results? With a single character input? With maximum-length input?
+
+Add these to your diagram alongside the code branches. A user flow with no test is just as much a gap as an untested if/else.
+
+**3. Check each branch against existing tests:**
+
+Go through your diagram branch by branch — both code paths AND user flows. For each one, search for a test that exercises it:
+- Function `processPayment()` → look for `billing.test.ts`, `billing.spec.ts`, `test/billing_test.rb`
+- An if/else → look for tests covering BOTH the true AND false path
+- An error handler → look for a test that triggers that specific error condition
+- A call to `helperFn()` that has its own branches → those branches need tests too
+- A user flow → look for an integration or E2E test that walks through the journey
+- An interaction edge case → look for a test that simulates the unexpected action
+
+Quality scoring rubric:
+- ★★★  Tests behavior with edge cases AND error paths
+- ★★   Tests correct behavior, happy path only
+- ★    Smoke test / existence check / trivial assertion (e.g., "it renders", "it doesn't throw")
+
+### E2E Test Decision Matrix
+
+When checking each branch, also determine whether a unit test or E2E/integration test is the right tool:
+
+**RECOMMEND E2E (mark as [→E2E] in the diagram):**
+- Common user flow spanning 3+ components/services (e.g., signup → verify email → first login)
+- Integration point where mocking hides real failures (e.g., API → queue → worker → DB)
+- Auth/payment/data-destruction flows — too important to trust unit tests alone
+
+**RECOMMEND EVAL (mark as [→EVAL] in the diagram):**
+- Critical LLM call that needs a quality eval (e.g., prompt change → test output still meets quality bar)
+- Changes to prompt templates, system instructions, or tool definitions
+
+**STICK WITH UNIT TESTS:**
+- Pure function with clear inputs/outputs
+- Internal helper with no side effects
+- Edge case of a single function (null input, empty array)
+- Obscure/rare flow that isn't customer-facing
+
+### REGRESSION RULE (mandatory)
+
+**IRON RULE:** When the coverage audit identifies a REGRESSION — code that previously worked but the diff broke — a regression test is written immediately. No AskUserQuestion. No skipping. Regressions are the highest-priority test because they prove something broke.
+
+A regression is when:
+- The diff modifies existing behavior (not new code)
+- The existing test suite (if any) doesn't cover the changed path
+- The change introduces a new failure mode for existing callers
+
+When uncertain whether a change is a regression, err on the side of writing the test.
+
+Format: commit as `test: regression test for {what broke}`
+
+**4. Output ASCII coverage diagram:**
+
+Include BOTH code paths and user flows in the same diagram. Mark E2E-worthy and eval-worthy paths:
+
+```
+CODE PATH COVERAGE
+===========================
+[+] src/services/billing.ts
+    │
+    ├── processPayment()
+    │   ├── [★★★ TESTED] Happy path + card declined + timeout — billing.test.ts:42
+    │   ├── [GAP]         Network timeout — NO TEST
+    │   └── [GAP]         Invalid currency — NO TEST
+    │
+    └── refundPayment()
+        ├── [★★  TESTED] Full refund — billing.test.ts:89
+        └── [★   TESTED] Partial refund (checks non-throw only) — billing.test.ts:101
+
+USER FLOW COVERAGE
+===========================
+[+] Payment checkout flow
+    │
+    ├── [★★★ TESTED] Complete purchase — checkout.e2e.ts:15
+    ├── [GAP] [→E2E] Double-click submit — needs E2E, not just unit
+    ├── [GAP]         Navigate away during payment — unit test sufficient
+    └── [★   TESTED]  Form validation errors (checks render only) — checkout.test.ts:40
+
+[+] Error states
+    │
+    ├── [★★  TESTED] Card declined message — billing.test.ts:58
+    ├── [GAP]         Network timeout UX (what does user see?) — NO TEST
+    └── [GAP]         Empty cart submission — NO TEST
+
+[+] LLM integration
+    │
+    └── [GAP] [→EVAL] Prompt template change — needs eval test
+
+─────────────────────────────────
+COVERAGE: 5/13 paths tested (38%)
+  Code paths: 3/5 (60%)
+  User flows: 2/8 (25%)
+QUALITY:  ★★★: 2  ★★: 2  ★: 1
+GAPS: 8 paths need tests (2 need E2E, 1 needs eval)
+─────────────────────────────────
+```
+
+**Fast path:** All paths covered → "Step 3.4: All new code paths have test coverage ✓" Continue.
+
+**5. Generate tests for uncovered paths:**
+
+If test framework detected (or bootstrapped in Step 2.5):
+- Prioritize error handlers and edge cases first (happy paths are more likely already tested)
+- Read 2-3 existing test files to match conventions exactly
+- Generate unit tests. Mock all external dependencies (DB, API, Redis).
+- For paths marked [→E2E]: generate integration/E2E tests using the project's E2E framework (Playwright, Cypress, Capybara, etc.)
+- For paths marked [→EVAL]: generate eval tests using the project's eval framework, or flag for manual eval if none exists
+- Write tests that exercise the specific uncovered path with real assertions
+- Run each test. Passes → commit as `test: coverage for {feature}`
+- Fails → fix once. Still fails → revert, note gap in diagram.
+
+Caps: 30 code paths max, 20 tests generated max (code + user flow combined), 2-min per-test exploration cap.
+
+If no test framework AND user declined bootstrap → diagram only, no generation. Note: "Test generation skipped — no test framework configured."
+
+**Diff is test-only changes:** Skip Step 3.4 entirely: "No new application code paths to audit."
+
+**6. After-count and coverage summary:**
+
+```bash
+# Count test files after generation
+find . -name '*.test.*' -o -name '*.spec.*' -o -name '*_test.*' -o -name '*_spec.*' | grep -v node_modules | wc -l
+```
+
+For PR body: `Tests: {before} → {after} (+{delta} new)`
+Coverage line: `Test Coverage Audit: N new code paths. M covered (X%). K tests generated, J committed.`
+
+### Test Plan Artifact
+
+After producing the coverage diagram, write a test plan artifact so `/qa` and `/qa-only` can consume it:
+
+```bash
+eval "$(~/.claude/skills/gstack/bin/gstack-slug 2>/dev/null)" && mkdir -p ~/.gstack/projects/$SLUG
+USER=$(whoami)
+DATETIME=$(date +%Y%m%d-%H%M%S)
+```
+
+Write to `~/.gstack/projects/{slug}/{user}-{branch}-ship-test-plan-{datetime}.md`:
+
+```markdown
+# Test Plan
+Generated by /ship on {date}
+Branch: {branch}
+Repo: {owner/repo}
+
+## Affected Pages/Routes
+- {URL path} — {what to test and why}
+
+## Key Interactions to Verify
+- {interaction description} on {page}
+
+## Edge Cases
+- {edge case} on {page}
+
+## Critical Paths
+- {end-to-end flow that must work}
+```
+
+---
+
+## Step 3.5: Pre-Landing Review
+
+Review the diff for structural issues that tests don't catch.
+
+1. Read `.claude/skills/review/checklist.md`. If the file cannot be read, **STOP** and report the error.
+
+2. Run `git diff origin/<base>` to get the full diff (scoped to feature changes against the freshly-fetched base branch).
+
+3. Apply the review checklist in two passes:
+   - **Pass 1 (CRITICAL):** SQL & Data Safety, LLM Output Trust Boundary
+   - **Pass 2 (INFORMATIONAL):** All remaining categories
+
+## Design Review (conditional, diff-scoped)
+
+Check if the diff touches frontend files using `gstack-diff-scope`:
+
+```bash
+source <(~/.claude/skills/gstack/bin/gstack-diff-scope <base> 2>/dev/null)
+```
+
+**If `SCOPE_FRONTEND=false`:** Skip design review silently. No output.
+
+**If `SCOPE_FRONTEND=true`:**
+
+1. **Check for DESIGN.md.** If `DESIGN.md` or `design-system.md` exists in the repo root, read it. All design findings are calibrated against it — patterns blessed in DESIGN.md are not flagged. If not found, use universal design principles.
+
+2. **Read `.claude/skills/review/design-checklist.md`.** If the file cannot be read, skip design review with a note: "Design checklist not found — skipping design review."
+
+3. **Read each changed frontend file** (full file, not just diff hunks). Frontend files are identified by the patterns listed in the checklist.
+
+4. **Apply the design checklist** against the changed files. For each item:
+   - **[HIGH] mechanical CSS fix** (`outline: none`, `!important`, `font-size < 16px`): classify as AUTO-FIX
+   - **[HIGH/MEDIUM] design judgment needed**: classify as ASK
+   - **[LOW] intent-based detection**: present as "Possible — verify visually or run /design-review"
+
+5. **Include findings** in the review output under a "Design Review" header, following the output format in the checklist. Design findings merge with code review findings into the same Fix-First flow.
+
+6. **Log the result** for the Review Readiness Dashboard:
+
+```bash
+~/.claude/skills/gstack/bin/gstack-review-log '{"skill":"design-review-lite","timestamp":"TIMESTAMP","status":"STATUS","findings":N,"auto_fixed":M,"commit":"COMMIT"}'
+```
+
+Substitute: TIMESTAMP = ISO 8601 datetime, STATUS = "clean" if 0 findings or "issues_found", N = total findings, M = auto-fixed count, COMMIT = output of `git rev-parse --short HEAD`.
+
+7. **Codex design voice** (optional, automatic if available):
+
+```bash
+which codex 2>/dev/null && echo "CODEX_AVAILABLE" || echo "CODEX_NOT_AVAILABLE"
+```
+
+If Codex is available, run a lightweight design check on the diff:
+
+```bash
+TMPERR_DRL=$(mktemp /tmp/codex-drl-XXXXXXXX)
+codex exec "Review the git diff on this branch. Run 7 litmus checks (YES/NO each): 1. Brand/product unmistakable in first screen? 2. One strong visual anchor present? 3. Page understandable by scanning headlines only? 4. Each section has one job? 5. Are cards actually necessary? 6. Does motion improve hierarchy or atmosphere? 7. Would design feel premium with all decorative shadows removed? Flag any hard rejections: 1. Generic SaaS card grid as first impression 2. Beautiful image with weak brand 3. Strong headline with no clear action 4. Busy imagery behind text 5. Sections repeating same mood statement 6. Carousel with no narrative purpose 7. App UI made of stacked cards instead of layout 5 most important design findings only. Reference file:line." -s read-only -c 'model_reasoning_effort="high"' --enable web_search_cached 2>"$TMPERR_DRL"
+```
+
+Use a 5-minute timeout (`timeout: 300000`). After the command completes, read stderr:
+```bash
+cat "$TMPERR_DRL" && rm -f "$TMPERR_DRL"
+```
+
+**Error handling:** All errors are non-blocking. On auth failure, timeout, or empty response — skip with a brief note and continue.
+
+Present Codex output under a `CODEX (design):` header, merged with the checklist findings above.
+
+   Include any design findings alongside the code review findings. They follow the same Fix-First flow below.
+
+4. **Classify each finding as AUTO-FIX or ASK** per the Fix-First Heuristic in
+   checklist.md. Critical findings lean toward ASK; informational lean toward AUTO-FIX.
+
+5. **Auto-fix all AUTO-FIX items.** Apply each fix. Output one line per fix:
    `[AUTO-FIXED] [file:line] Problem → what you did`
 
-6. **ASK 항목이 남아 있으면** 하나의 AskUserQuestion으로 제시합니다:
-   - 각 항목을 번호, 심각도, 문제, 권장 수정과 함께 나열합니다
-   - 항목별 옵션: A) 수정  B) 건너뜀
-   - 전체 RECOMMENDATION
-   - ASK 항목이 3개 이하인 경우 개별 AskUserQuestion 호출 사용 가능
+6. **If ASK items remain,** present them in ONE AskUserQuestion:
+   - List each with number, severity, problem, recommended fix
+   - Per-item options: A) Fix  B) Skip
+   - Overall RECOMMENDATION
+   - If 3 or fewer ASK items, you may use individual AskUserQuestion calls instead
 
-7. **모든 수정(자동 + 사용자 승인) 후:**
-   - 수정이 적용된 경우: 이름으로 수정된 파일을 commit합니다 (`git add <fixed-files> && git commit -m "fix: pre-landing review fixes"`). 그 후 **중지**하고 사용자에게 다시 `/ship`을 실행하도록 안내합니다.
-   - 수정이 없는 경우 (모든 ASK 항목을 건너뛰거나 이슈 없음): Step 4로 계속합니다.
+7. **After all fixes (auto + user-approved):**
+   - If ANY fixes were applied: commit fixed files by name (`git add <fixed-files> && git commit -m "fix: pre-landing review fixes"`), then **STOP** and tell the user to run `/ship` again to re-test.
+   - If no fixes applied (all ASK items skipped, or no issues found): continue to Step 4.
 
-8. 요약 출력: `Pre-Landing Review: N issues — M auto-fixed, K asked (J fixed, L skipped)`
+8. Output summary: `Pre-Landing Review: N issues — M auto-fixed, K asked (J fixed, L skipped)`
 
-   이슈 없는 경우: `Pre-Landing Review: No issues found.`
+   If no issues found: `Pre-Landing Review: No issues found.`
 
-리뷰 출력을 저장합니다 — Step 8에서 PR 본문에 들어갑니다.
-
----
-
-## Step 3.75: Greptile 리뷰 코멘트 처리 (PR이 있는 경우)
-
-`.claude/skills/review/greptile-triage.md`를 읽고 fetch, filter, classify, **escalation detection** 단계를 따릅니다.
-
-**PR이 없거나, `gh` 실패, API 오류, Greptile 코멘트가 0개인 경우:** 이 단계를 조용히 건너뜁니다. Step 4로 계속합니다.
-
-**Greptile 코멘트가 발견된 경우:**
-
-출력에 Greptile 요약 포함: `+ N Greptile comments (X valid, Y fixed, Z FP)`
-
-코멘트에 답하기 전에 greptile-triage.md의 **Escalation Detection** 알고리즘을 실행하여 Tier 1(친근한) 또는 Tier 2(단호한) 답변 템플릿 중 어느 것을 사용할지 결정합니다.
-
-각 분류된 코멘트에 대해:
-
-**VALID & ACTIONABLE:** AskUserQuestion 사용:
-- 코멘트 (file:line 또는 [top-level] + 본문 요약 + permalink URL)
-- `RECOMMENDATION: Choose A because [한 줄 이유]`
-- 옵션: A) 지금 수정, B) 인정하고 그냥 ship, C) False positive입니다
-- 사용자가 A를 선택하면: 수정을 적용하고 수정된 파일을 commit합니다 (`git add <fixed-files> && git commit -m "fix: address Greptile review — <간략한 설명>"`). greptile-triage.md의 **Fix reply template**을 사용하여 답변합니다 (인라인 diff + 설명 포함). per-project와 global greptile-history 모두에 저장합니다 (type: fix).
-- 사용자가 C를 선택하면: greptile-triage.md의 **False Positive reply template**을 사용하여 답변합니다 (증거 + 재랭크 제안 포함). per-project와 global greptile-history 모두에 저장합니다 (type: fp).
-
-**VALID BUT ALREADY FIXED:** greptile-triage.md의 **Already Fixed reply template**을 사용하여 답변합니다 — AskUserQuestion 불필요:
-- 무엇이 완료되었는지와 수정 commit SHA 포함
-- per-project와 global greptile-history 모두에 저장합니다 (type: already-fixed)
-
-**FALSE POSITIVE:** AskUserQuestion 사용:
-- 코멘트와 왜 틀렸다고 생각하는지 표시 (file:line 또는 [top-level] + 본문 요약 + permalink URL)
-- 옵션:
-  - A) false positive인 이유를 Greptile에게 답변 (명확하게 틀린 경우 권장)
-  - B) 어쨌든 수정 (사소한 경우)
-  - C) 조용히 무시
-- 사용자가 A를 선택하면: greptile-triage.md의 **False Positive reply template**을 사용하여 답변합니다 (증거 + 재랭크 제안 포함). per-project와 global greptile-history 모두에 저장합니다 (type: fp)
-
-**SUPPRESSED:** 조용히 건너뜁니다 — 이전 triage에서 확인된 known false positive입니다.
-
-**모든 코멘트 해결 후:** 수정이 적용된 경우 Step 3의 테스트가 이제 오래된 상태입니다. Step 4로 계속하기 전에 **테스트를 다시 실행합니다** (Step 3). 수정이 없는 경우 Step 4로 계속합니다.
+Save the review output — it goes into the PR body in Step 8.
 
 ---
 
-## Step 4: 버전 업 (자동 결정)
+## Step 3.75: Address Greptile review comments (if PR exists)
 
-1. 현재 `VERSION` 파일을 읽습니다 (4자리 형식: `MAJOR.MINOR.PATCH.MICRO`)
+Read `.claude/skills/review/greptile-triage.md` and follow the fetch, filter, classify, and **escalation detection** steps.
 
-2. **diff를 기반으로 업 레벨을 자동 결정합니다:**
-   - 변경된 라인 수를 셉니다 (`git diff origin/<base>...HEAD --stat | tail -1`)
-   - **MICRO** (4번째 자리): 50줄 미만 변경, 사소한 수정, 오타, 설정
-   - **PATCH** (3번째 자리): 50줄 이상 변경, 버그 수정, 소-중형 기능
-   - **MINOR** (2번째 자리): **사용자에게 질문** — 주요 기능 또는 상당한 아키텍처 변경에만 해당
-   - **MAJOR** (1번째 자리): **사용자에게 질문** — 마일스톤 또는 breaking change에만 해당
+**If no PR exists, `gh` fails, API returns an error, or there are zero Greptile comments:** Skip this step silently. Continue to Step 4.
 
-3. 새 버전을 계산합니다:
-   - 자리를 올리면 오른쪽의 모든 자리는 0으로 초기화됩니다
-   - 예시: `0.19.1.0` + PATCH → `0.19.2.0`
+**If Greptile comments are found:**
 
-4. `VERSION` 파일에 새 버전을 씁니다.
+Include a Greptile summary in your output: `+ N Greptile comments (X valid, Y fixed, Z FP)`
 
----
+Before replying to any comment, run the **Escalation Detection** algorithm from greptile-triage.md to determine whether to use Tier 1 (friendly) or Tier 2 (firm) reply templates.
 
-## Step 5: CHANGELOG (자동 생성)
+For each classified comment:
 
-1. `CHANGELOG.md` 헤더를 읽어 형식을 파악합니다.
+**VALID & ACTIONABLE:** Use AskUserQuestion with:
+- The comment (file:line or [top-level] + body summary + permalink URL)
+- `RECOMMENDATION: Choose A because [one-line reason]`
+- Options: A) Fix now, B) Acknowledge and ship anyway, C) It's a false positive
+- If user chooses A: apply the fix, commit the fixed files (`git add <fixed-files> && git commit -m "fix: address Greptile review — <brief description>"`), reply using the **Fix reply template** from greptile-triage.md (include inline diff + explanation), and save to both per-project and global greptile-history (type: fix).
+- If user chooses C: reply using the **False Positive reply template** from greptile-triage.md (include evidence + suggested re-rank), save to both per-project and global greptile-history (type: fp).
 
-2. **브랜치의 모든 commit**에서 항목을 자동 생성합니다 (최근 것만이 아니라):
-   - `git log <base>..HEAD --oneline`으로 ship될 모든 commit 확인
-   - `git diff <base>...HEAD`로 base 브랜치 대비 전체 diff 확인
-   - CHANGELOG 항목은 PR에 들어가는 모든 변경사항을 포괄해야 합니다
-   - 브랜치의 기존 CHANGELOG 항목이 일부 commit을 이미 다루고 있다면, 새 버전의 단일 통합 항목으로 교체합니다
-   - 변경사항을 해당 섹션으로 분류합니다:
-     - `### Added` — 새 기능
-     - `### Changed` — 기존 기능 변경
-     - `### Fixed` — 버그 수정
-     - `### Removed` — 제거된 기능
-   - 간결하고 설명적인 bullet point를 작성합니다
-   - 파일 헤더(5번째 줄) 이후에 오늘 날짜로 삽입합니다
-   - 형식: `## [X.Y.Z.W] - YYYY-MM-DD`
+**VALID BUT ALREADY FIXED:** Reply using the **Already Fixed reply template** from greptile-triage.md — no AskUserQuestion needed:
+- Include what was done and the fixing commit SHA
+- Save to both per-project and global greptile-history (type: already-fixed)
 
-**사용자에게 변경사항 설명을 요청하지 않습니다.** diff와 commit 히스토리에서 추론합니다.
+**FALSE POSITIVE:** Use AskUserQuestion:
+- Show the comment and why you think it's wrong (file:line or [top-level] + body summary + permalink URL)
+- Options:
+  - A) Reply to Greptile explaining the false positive (recommended if clearly wrong)
+  - B) Fix it anyway (if trivial)
+  - C) Ignore silently
+- If user chooses A: reply using the **False Positive reply template** from greptile-triage.md (include evidence + suggested re-rank), save to both per-project and global greptile-history (type: fp)
+
+**SUPPRESSED:** Skip silently — these are known false positives from previous triage.
+
+**After all comments are resolved:** If any fixes were applied, the tests from Step 3 are now stale. **Re-run tests** (Step 3) before continuing to Step 4. If no fixes were applied, continue to Step 4.
 
 ---
 
-## Step 5.5: TODOS.md (자동 업데이트)
+## Step 3.8: Adversarial review (auto-scaled)
 
-프로젝트의 TODOS.md를 ship될 변경사항과 교차 참조합니다. 완료된 항목은 자동으로 표시합니다. 파일이 없거나 정리가 안 된 경우에만 질문합니다.
+Adversarial review thoroughness scales automatically based on diff size. No configuration needed.
 
-`.claude/skills/review/TODOS-format.md`를 읽어 표준 형식 참조서로 사용합니다.
+**Detect diff size and tool availability:**
 
-**1. 저장소 루트에 TODOS.md가 존재하는지 확인합니다.**
+```bash
+DIFF_INS=$(git diff origin/<base> --stat | tail -1 | grep -oE '[0-9]+ insertion' | grep -oE '[0-9]+' || echo "0")
+DIFF_DEL=$(git diff origin/<base> --stat | tail -1 | grep -oE '[0-9]+ deletion' | grep -oE '[0-9]+' || echo "0")
+DIFF_TOTAL=$((DIFF_INS + DIFF_DEL))
+which codex 2>/dev/null && echo "CODEX_AVAILABLE" || echo "CODEX_NOT_AVAILABLE"
+# Respect old opt-out
+OLD_CFG=$(~/.claude/skills/gstack/bin/gstack-config get codex_reviews 2>/dev/null || true)
+echo "DIFF_SIZE: $DIFF_TOTAL"
+echo "OLD_CFG: ${OLD_CFG:-not_set}"
+```
 
-**TODOS.md가 없는 경우:** AskUserQuestion 사용:
-- 메시지: "GStack recommends maintaining a TODOS.md organized by skill/component, then priority (P0 at top through P4, then Completed at bottom). See TODOS-format.md for the full format. Would you like to create one?"
-- 옵션: A) 지금 생성, B) 지금은 건너뜀
-- A를 선택하면: 기본 틀(# TODOS 제목 + ## Completed 섹션)로 `TODOS.md`를 생성합니다. 3단계로 계속합니다.
-- B를 선택하면: Step 5.5의 나머지를 건너뜁니다. Step 6으로 계속합니다.
+If `OLD_CFG` is `disabled`: skip this step silently. Continue to the next step.
 
-**2. 구조와 정리 상태를 확인합니다:**
+**User override:** If the user explicitly requested a specific tier (e.g., "run all passes", "paranoid review", "full adversarial", "do all 4 passes", "thorough review"), honor that request regardless of diff size. Jump to the matching tier section.
 
-TODOS.md를 읽고 권장 구조를 따르는지 확인합니다:
-- `## <Skill/Component>` 헤딩 아래 항목 그룹화
-- 각 항목에 P0-P4 값의 `**Priority:**` 필드 포함
-- 하단에 `## Completed` 섹션 포함
+**Auto-select tier based on diff size:**
+- **Small (< 50 lines changed):** Skip adversarial review entirely. Print: "Small diff ($DIFF_TOTAL lines) — adversarial review skipped." Continue to the next step.
+- **Medium (50–199 lines changed):** Run Codex adversarial challenge (or Claude adversarial subagent if Codex unavailable). Jump to the "Medium tier" section.
+- **Large (200+ lines changed):** Run all remaining passes — Codex structured review + Claude adversarial subagent + Codex adversarial. Jump to the "Large tier" section.
 
-**정리가 안 된 경우** (priority 필드 없음, 컴포넌트 그룹화 없음, Completed 섹션 없음): AskUserQuestion 사용:
-- 메시지: "TODOS.md doesn't follow the recommended structure (skill/component groupings, P0-P4 priority, Completed section). Would you like to reorganize it?"
-- 옵션: A) 지금 재정리 (권장), B) 그대로 유지
-- A를 선택하면: TODOS-format.md를 따라 제자리에서 재정리합니다. 모든 내용을 보존합니다 — 구조만 재편하고 항목은 절대 삭제하지 않습니다.
-- B를 선택하면: 재정리 없이 3단계로 계속합니다.
+---
 
-**3. 완료된 TODO 감지:**
+### Medium tier (50–199 lines)
 
-이 단계는 완전 자동 — 사용자 상호작용 없음.
+Claude's structured review already ran. Now add a **cross-model adversarial challenge**.
 
-이전 단계에서 이미 수집한 diff와 commit 히스토리를 사용합니다:
-- `git diff <base>...HEAD` (base 브랜치 대비 전체 diff)
-- `git log <base>..HEAD --oneline` (ship될 모든 commit)
+**If Codex is available:** run the Codex adversarial challenge. **If Codex is NOT available:** fall back to the Claude adversarial subagent instead.
 
-각 TODO 항목에 대해, 이 PR의 변경사항이 해당 항목을 완료하는지 확인합니다:
-- commit 메시지와 TODO 제목 및 설명 대조
-- TODO에 참조된 파일이 diff에 나타나는지 확인
-- TODO에 설명된 작업이 기능 변경사항과 일치하는지 확인
+**Codex adversarial:**
 
-**보수적으로 판단합니다:** diff에 명확한 증거가 있는 경우에만 TODO를 완료로 표시합니다. 불확실한 경우 그대로 둡니다.
+```bash
+TMPERR_ADV=$(mktemp /tmp/codex-adv-XXXXXXXX)
+codex exec "Review the changes on this branch against the base branch. Run git diff origin/<base> to see the diff. Your job is to find ways this code will fail in production. Think like an attacker and a chaos engineer. Find edge cases, race conditions, security holes, resource leaks, failure modes, and silent data corruption paths. Be adversarial. Be thorough. No compliments — just the problems." -s read-only -c 'model_reasoning_effort="xhigh"' --enable web_search_cached 2>"$TMPERR_ADV"
+```
 
-**4. 완료된 항목을** 하단의 `## Completed` 섹션으로 이동합니다. 다음을 추가합니다: `**Completed:** vX.Y.Z (YYYY-MM-DD)`
+Set the Bash tool's `timeout` parameter to `300000` (5 minutes). Do NOT use the `timeout` shell command — it doesn't exist on macOS. After the command completes, read stderr:
+```bash
+cat "$TMPERR_ADV"
+```
 
-**5. 요약 출력:**
+Present the full output verbatim. This is informational — it never blocks shipping.
+
+**Error handling:** All errors are non-blocking — adversarial review is a quality enhancement, not a prerequisite.
+- **Auth failure:** If stderr contains "auth", "login", "unauthorized", or "API key": "Codex authentication failed. Run \`codex login\` to authenticate."
+- **Timeout:** "Codex timed out after 5 minutes."
+- **Empty response:** "Codex returned no response. Stderr: <paste relevant error>."
+
+On any Codex error, fall back to the Claude adversarial subagent automatically.
+
+**Claude adversarial subagent** (fallback when Codex unavailable or errored):
+
+Dispatch via the Agent tool. The subagent has fresh context — no checklist bias from the structured review. This genuine independence catches things the primary reviewer is blind to.
+
+Subagent prompt:
+"Read the diff for this branch with `git diff origin/<base>`. Think like an attacker and a chaos engineer. Your job is to find ways this code will fail in production. Look for: edge cases, race conditions, security holes, resource leaks, failure modes, silent data corruption, logic errors that produce wrong results silently, error handling that swallows failures, and trust boundary violations. Be adversarial. Be thorough. No compliments — just the problems. For each finding, classify as FIXABLE (you know how to fix it) or INVESTIGATE (needs human judgment)."
+
+Present findings under an `ADVERSARIAL REVIEW (Claude subagent):` header. **FIXABLE findings** flow into the same Fix-First pipeline as the structured review. **INVESTIGATE findings** are presented as informational.
+
+If the subagent fails or times out: "Claude adversarial subagent unavailable. Continuing without adversarial review."
+
+**Persist the review result:**
+```bash
+~/.claude/skills/gstack/bin/gstack-review-log '{"skill":"adversarial-review","timestamp":"'"$(date -u +%Y-%m-%dT%H:%M:%SZ)"'","status":"STATUS","source":"SOURCE","tier":"medium","commit":"'"$(git rev-parse --short HEAD)"'"}'
+```
+Substitute STATUS: "clean" if no findings, "issues_found" if findings exist. SOURCE: "codex" if Codex ran, "claude" if subagent ran. If both failed, do NOT persist.
+
+**Cleanup:** Run `rm -f "$TMPERR_ADV"` after processing (if Codex was used).
+
+---
+
+### Large tier (200+ lines)
+
+Claude's structured review already ran. Now run **all three remaining passes** for maximum coverage:
+
+**1. Codex structured review (if available):**
+```bash
+TMPERR=$(mktemp /tmp/codex-review-XXXXXXXX)
+codex review --base <base> -c 'model_reasoning_effort="xhigh"' --enable web_search_cached 2>"$TMPERR"
+```
+
+Set the Bash tool's `timeout` parameter to `300000` (5 minutes). Do NOT use the `timeout` shell command — it doesn't exist on macOS. Present output under `CODEX SAYS (code review):` header.
+Check for `[P1]` markers: found → `GATE: FAIL`, not found → `GATE: PASS`.
+
+If GATE is FAIL, use AskUserQuestion:
+```
+Codex found N critical issues in the diff.
+
+A) Investigate and fix now (recommended)
+B) Continue — review will still complete
+```
+
+If A: address the findings. After fixing, re-run tests (Step 3) since code has changed. Re-run `codex review` to verify.
+
+Read stderr for errors (same error handling as medium tier).
+
+After stderr: `rm -f "$TMPERR"`
+
+**2. Claude adversarial subagent:** Dispatch a subagent with the adversarial prompt (same prompt as medium tier). This always runs regardless of Codex availability.
+
+**3. Codex adversarial challenge (if available):** Run `codex exec` with the adversarial prompt (same as medium tier).
+
+If Codex is not available for steps 1 and 3, note to the user: "Codex CLI not found — large-diff review ran Claude structured + Claude adversarial (2 of 4 passes). Install Codex for full 4-pass coverage: `npm install -g @openai/codex`"
+
+**Persist the review result AFTER all passes complete** (not after each sub-step):
+```bash
+~/.claude/skills/gstack/bin/gstack-review-log '{"skill":"adversarial-review","timestamp":"'"$(date -u +%Y-%m-%dT%H:%M:%SZ)"'","status":"STATUS","source":"SOURCE","tier":"large","gate":"GATE","commit":"'"$(git rev-parse --short HEAD)"'"}'
+```
+Substitute: STATUS = "clean" if no findings across ALL passes, "issues_found" if any pass found issues. SOURCE = "both" if Codex ran, "claude" if only Claude subagent ran. GATE = the Codex structured review gate result ("pass"/"fail"), or "informational" if Codex was unavailable. If all passes failed, do NOT persist.
+
+---
+
+### Cross-model synthesis (medium and large tiers)
+
+After all passes complete, synthesize findings across all sources:
+
+```
+ADVERSARIAL REVIEW SYNTHESIS (auto: TIER, N lines):
+════════════════════════════════════════════════════════════
+  High confidence (found by multiple sources): [findings agreed on by >1 pass]
+  Unique to Claude structured review: [from earlier step]
+  Unique to Claude adversarial: [from subagent, if ran]
+  Unique to Codex: [from codex adversarial or code review, if ran]
+  Models used: Claude structured ✓  Claude adversarial ✓/✗  Codex ✓/✗
+════════════════════════════════════════════════════════════
+```
+
+High-confidence findings (agreed on by multiple sources) should be prioritized for fixes.
+
+---
+
+## Step 4: Version bump (auto-decide)
+
+1. Read the current `VERSION` file (4-digit format: `MAJOR.MINOR.PATCH.MICRO`)
+
+2. **Auto-decide the bump level based on the diff:**
+   - Count lines changed (`git diff origin/<base>...HEAD --stat | tail -1`)
+   - **MICRO** (4th digit): < 50 lines changed, trivial tweaks, typos, config
+   - **PATCH** (3rd digit): 50+ lines changed, bug fixes, small-medium features
+   - **MINOR** (2nd digit): **ASK the user** — only for major features or significant architectural changes
+   - **MAJOR** (1st digit): **ASK the user** — only for milestones or breaking changes
+
+3. Compute the new version:
+   - Bumping a digit resets all digits to its right to 0
+   - Example: `0.19.1.0` + PATCH → `0.19.2.0`
+
+4. Write the new version to the `VERSION` file.
+
+---
+
+## Step 5: CHANGELOG (auto-generate)
+
+1. Read `CHANGELOG.md` header to know the format.
+
+2. Auto-generate the entry from **ALL commits on the branch** (not just recent ones):
+   - Use `git log <base>..HEAD --oneline` to see every commit being shipped
+   - Use `git diff <base>...HEAD` to see the full diff against the base branch
+   - The CHANGELOG entry must be comprehensive of ALL changes going into the PR
+   - If existing CHANGELOG entries on the branch already cover some commits, replace them with one unified entry for the new version
+   - Categorize changes into applicable sections:
+     - `### Added` — new features
+     - `### Changed` — changes to existing functionality
+     - `### Fixed` — bug fixes
+     - `### Removed` — removed features
+   - Write concise, descriptive bullet points
+   - Insert after the file header (line 5), dated today
+   - Format: `## [X.Y.Z.W] - YYYY-MM-DD`
+
+**Do NOT ask the user to describe changes.** Infer from the diff and commit history.
+
+---
+
+## Step 5.5: TODOS.md (auto-update)
+
+Cross-reference the project's TODOS.md against the changes being shipped. Mark completed items automatically; prompt only if the file is missing or disorganized.
+
+Read `.claude/skills/review/TODOS-format.md` for the canonical format reference.
+
+**1. Check if TODOS.md exists** in the repository root.
+
+**If TODOS.md does not exist:** Use AskUserQuestion:
+- Message: "GStack recommends maintaining a TODOS.md organized by skill/component, then priority (P0 at top through P4, then Completed at bottom). See TODOS-format.md for the full format. Would you like to create one?"
+- Options: A) Create it now, B) Skip for now
+- If A: Create `TODOS.md` with a skeleton (# TODOS heading + ## Completed section). Continue to step 3.
+- If B: Skip the rest of Step 5.5. Continue to Step 6.
+
+**2. Check structure and organization:**
+
+Read TODOS.md and verify it follows the recommended structure:
+- Items grouped under `## <Skill/Component>` headings
+- Each item has `**Priority:**` field with P0-P4 value
+- A `## Completed` section at the bottom
+
+**If disorganized** (missing priority fields, no component groupings, no Completed section): Use AskUserQuestion:
+- Message: "TODOS.md doesn't follow the recommended structure (skill/component groupings, P0-P4 priority, Completed section). Would you like to reorganize it?"
+- Options: A) Reorganize now (recommended), B) Leave as-is
+- If A: Reorganize in-place following TODOS-format.md. Preserve all content — only restructure, never delete items.
+- If B: Continue to step 3 without restructuring.
+
+**3. Detect completed TODOs:**
+
+This step is fully automatic — no user interaction.
+
+Use the diff and commit history already gathered in earlier steps:
+- `git diff <base>...HEAD` (full diff against the base branch)
+- `git log <base>..HEAD --oneline` (all commits being shipped)
+
+For each TODO item, check if the changes in this PR complete it by:
+- Matching commit messages against the TODO title and description
+- Checking if files referenced in the TODO appear in the diff
+- Checking if the TODO's described work matches the functional changes
+
+**Be conservative:** Only mark a TODO as completed if there is clear evidence in the diff. If uncertain, leave it alone.
+
+**4. Move completed items** to the `## Completed` section at the bottom. Append: `**Completed:** vX.Y.Z (YYYY-MM-DD)`
+
+**5. Output summary:**
 - `TODOS.md: N items marked complete (item1, item2, ...). M items remaining.`
-- 또는: `TODOS.md: No completed items detected. M items remaining.`
-- 또는: `TODOS.md: Created.` / `TODOS.md: Reorganized.`
+- Or: `TODOS.md: No completed items detected. M items remaining.`
+- Or: `TODOS.md: Created.` / `TODOS.md: Reorganized.`
 
-**6. 방어 처리:** TODOS.md를 쓸 수 없는 경우 (권한 오류, 디스크 꽉 참), 사용자에게 경고하고 계속합니다. TODOS 실패로 ship 워크플로를 절대 중지하지 않습니다.
+**6. Defensive:** If TODOS.md cannot be written (permission error, disk full), warn the user and continue. Never stop the ship workflow for a TODOS failure.
 
-이 요약을 저장합니다 — Step 8에서 PR 본문에 들어갑니다.
+Save this summary — it goes into the PR body in Step 8.
 
 ---
 
 ## Step 6: Commit (bisectable chunks)
 
-**목표:** `git bisect`에 잘 맞고 LLM이 변경사항을 이해하는 데 도움이 되는 작고 논리적인 commit을 만듭니다.
+**Goal:** Create small, logical commits that work well with `git bisect` and help LLMs understand what changed.
 
-1. diff를 분석하고 변경사항을 논리적인 commit으로 그룹화합니다. 각 commit은 **하나의 일관된 변경**을 나타내야 합니다 — 하나의 파일이 아니라 하나의 논리적 단위.
+1. Analyze the diff and group changes into logical commits. Each commit should represent **one coherent change** — not one file, but one logical unit.
 
-2. **Commit 순서** (이른 commit 먼저):
-   - **인프라:** 마이그레이션, 설정 변경, 라우트 추가
-   - **모델 & 서비스:** 새 모델, 서비스, concerns (테스트 포함)
-   - **컨트롤러 & views:** 컨트롤러, views, JS/React 컴포넌트 (테스트 포함)
-   - **VERSION + CHANGELOG + TODOS.md:** 항상 마지막 commit에
+2. **Commit ordering** (earlier commits first):
+   - **Infrastructure:** migrations, config changes, route additions
+   - **Models & services:** new models, services, concerns (with their tests)
+   - **Controllers & views:** controllers, views, JS/React components (with their tests)
+   - **VERSION + CHANGELOG + TODOS.md:** always in the final commit
 
-3. **분리 규칙:**
-   - 모델과 테스트 파일은 같은 commit에
-   - 서비스와 테스트 파일은 같은 commit에
-   - 컨트롤러, views, 테스트는 같은 commit에
-   - 마이그레이션은 별도 commit (또는 지원하는 모델과 그룹화)
-   - 설정/라우트 변경은 활성화하는 기능과 그룹화 가능
-   - 전체 diff가 작은 경우 (4개 미만 파일의 50줄 미만), 단일 commit도 괜찮습니다
+3. **Rules for splitting:**
+   - A model and its test file go in the same commit
+   - A service and its test file go in the same commit
+   - A controller, its views, and its test go in the same commit
+   - Migrations are their own commit (or grouped with the model they support)
+   - Config/route changes can group with the feature they enable
+   - If the total diff is small (< 50 lines across < 4 files), a single commit is fine
 
-4. **각 commit은 독립적으로 유효해야 합니다** — broken import 없음, 아직 존재하지 않는 코드 참조 없음. 의존성이 먼저 오도록 commit 순서를 지정합니다.
+4. **Each commit must be independently valid** — no broken imports, no references to code that doesn't exist yet. Order commits so dependencies come first.
 
-5. 각 commit 메시지를 작성합니다:
-   - 첫 번째 줄: `<type>: <summary>` (type = feat/fix/chore/refactor/docs)
-   - 본문: 이 commit에 무엇이 포함되는지 간략한 설명
-   - **마지막 commit**만 (VERSION + CHANGELOG) 버전 태그와 co-author trailer를 포함합니다:
+5. Compose each commit message:
+   - First line: `<type>: <summary>` (type = feat/fix/chore/refactor/docs)
+   - Body: brief description of what this commit contains
+   - Only the **final commit** (VERSION + CHANGELOG) gets the version tag and co-author trailer:
 
 ```bash
 git commit -m "$(cat <<'EOF'
@@ -441,9 +1388,31 @@ EOF
 
 ---
 
+## Step 6.5: Verification Gate
+
+**IRON LAW: NO COMPLETION CLAIMS WITHOUT FRESH VERIFICATION EVIDENCE.**
+
+Before pushing, re-verify if code changed during Steps 4-6:
+
+1. **Test verification:** If ANY code changed after Step 3's test run (fixes from review findings, CHANGELOG edits don't count), re-run the test suite. Paste fresh output. Stale output from Step 3 is NOT acceptable.
+
+2. **Build verification:** If the project has a build step, run it. Paste output.
+
+3. **Rationalization prevention:**
+   - "Should work now" → RUN IT.
+   - "I'm confident" → Confidence is not evidence.
+   - "I already tested earlier" → Code changed since then. Test again.
+   - "It's a trivial change" → Trivial changes break production.
+
+**If tests fail here:** STOP. Do not push. Fix the issue and return to Step 3.
+
+Claiming work is complete without verification is dishonesty, not efficiency.
+
+---
+
 ## Step 7: Push
 
-upstream tracking과 함께 remote에 push합니다:
+Push to the remote with upstream tracking:
 
 ```bash
 git push -u origin <branch-name>
@@ -451,17 +1420,25 @@ git push -u origin <branch-name>
 
 ---
 
-## Step 8: PR 생성
+## Step 8: Create PR
 
-`gh`를 사용하여 pull request를 생성합니다:
+Create a pull request using `gh`:
 
 ```bash
 gh pr create --base <base> --title "<type>: <summary>" --body "$(cat <<'EOF'
 ## Summary
 <bullet points from CHANGELOG>
 
+## Test Coverage
+<coverage diagram from Step 3.4, or "All new code paths have test coverage.">
+<If Step 3.4 ran: "Tests: {before} → {after} (+{delta} new)">
+
 ## Pre-Landing Review
-<findings from Step 3.5, or "No issues found.">
+<findings from Step 3.5 code review, or "No issues found.">
+
+## Design Review
+<If design review ran: "Design Review (lite): N findings — M auto-fixed, K skipped. AI Slop: clean/N issues.">
+<If no frontend files changed: "No frontend files changed — design review skipped.">
 
 ## Eval Results
 <If evals ran: suite names, pass/fail counts, cost dashboard summary. If skipped: "No prompt-related files changed — evals skipped.">
@@ -486,19 +1463,42 @@ EOF
 )"
 ```
 
-**PR URL을 출력합니다** — 사용자가 마지막으로 보게 되는 최종 출력이어야 합니다.
+**Output the PR URL** — then proceed to Step 8.5.
 
 ---
 
-## 중요 규칙
+## Step 8.5: Auto-invoke /document-release
 
-- **테스트를 절대 건너뛰지 않습니다.** 테스트가 실패하면 중지합니다.
-- **Pre-landing 리뷰를 절대 건너뛰지 않습니다.** checklist.md를 읽을 수 없으면 중지합니다.
-- **Force push를 절대 하지 않습니다.** 일반 `git push`만 사용합니다.
-- **확인을 절대 요청하지 않습니다** — MINOR/MAJOR 버전 업과 pre-landing 리뷰 ASK 항목(최대 하나의 AskUserQuestion으로 일괄 처리) 제외.
-- **항상 VERSION 파일의 4자리 버전 형식을 사용합니다.**
-- **CHANGELOG의 날짜 형식:** `YYYY-MM-DD`
-- **bisectability를 위해 commit을 분리합니다** — 각 commit = 하나의 논리적 변경.
-- **TODOS.md 완료 감지는 보수적이어야 합니다.** diff에서 작업이 완료되었음을 명확히 보여줄 때만 항목을 완료로 표시합니다.
-- **greptile-triage.md의 Greptile 답변 템플릿을 사용합니다.** 모든 답변에는 증거가 포함됩니다 (인라인 diff, 코드 참조, 재랭크 제안). 모호한 답변은 절대 게시하지 않습니다.
-- **목표는: 사용자가 `/ship`을 입력하면 그 다음에 리뷰 + PR URL이 보이는 것입니다.**
+After the PR is created, automatically sync project documentation. Read the
+`document-release/SKILL.md` skill file (adjacent to this skill's directory) and
+execute its full workflow:
+
+1. Read the `/document-release` skill: `cat ${CLAUDE_SKILL_DIR}/../document-release/SKILL.md`
+2. Follow its instructions — it reads all .md files in the project, cross-references
+   the diff, and updates anything that drifted (README, ARCHITECTURE, CONTRIBUTING,
+   CLAUDE.md, TODOS, etc.)
+3. If any docs were updated, commit the changes and push to the same branch:
+   ```bash
+   git add -A && git commit -m "docs: sync documentation with shipped changes" && git push
+   ```
+4. If no docs needed updating, say "Documentation is current — no updates needed."
+
+This step is automatic. Do not ask the user for confirmation. The goal is zero-friction
+doc updates — the user runs `/ship` and documentation stays current without a separate command.
+
+---
+
+## Important Rules
+
+- **Never skip tests.** If tests fail, stop.
+- **Never skip the pre-landing review.** If checklist.md is unreadable, stop.
+- **Never force push.** Use regular `git push` only.
+- **Never ask for trivial confirmations** (e.g., "ready to push?", "create PR?"). DO stop for: version bumps (MINOR/MAJOR), pre-landing review findings (ASK items), and Codex structured review [P1] findings (large diffs only).
+- **Always use the 4-digit version format** from the VERSION file.
+- **Date format in CHANGELOG:** `YYYY-MM-DD`
+- **Split commits for bisectability** — each commit = one logical change.
+- **TODOS.md completion detection must be conservative.** Only mark items as completed when the diff clearly shows the work is done.
+- **Use Greptile reply templates from greptile-triage.md.** Every reply includes evidence (inline diff, code references, re-rank suggestion). Never post vague replies.
+- **Never push without fresh verification evidence.** If code changed after Step 3 tests, re-run before pushing.
+- **Step 3.4 generates coverage tests.** They must pass before committing. Never commit failing tests.
+- **The goal is: user says `/ship`, next thing they see is the review + PR URL + auto-synced docs.**

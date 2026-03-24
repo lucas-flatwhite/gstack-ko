@@ -1,13 +1,17 @@
 ---
 name: qa
+preamble-tier: 4
 version: 2.0.0
 description: |
-  웹 애플리케이션을 체계적으로 QA 테스트하고 발견된 버그를 수정합니다. QA 테스트를 실행하고,
-  소스 코드의 버그를 반복적으로 수정하며, 각 수정사항을 원자적으로 commit하고
-  재검증합니다. "qa", "QA", "이 사이트 테스트", "버그 찾기",
-  "테스트하고 수정", "고장난 것 고쳐줘" 요청 시 사용합니다. 세 가지 단계: Quick (critical/high만),
-  Standard (+ medium), Exhaustive (+ cosmetic). 수정 전후 health score,
-  수정 근거, ship 준비 상태 요약을 제공합니다. 보고서 전용 모드는 /qa-only를 사용하세요.
+  MANUAL TRIGGER ONLY: invoke only when user types /qa.
+  Systematically QA test a web application and fix bugs found. Runs QA testing,
+  then iteratively fixes bugs in source code, committing each fix atomically and
+  re-verifying. Use when asked to "qa", "QA", "test this site", "find bugs",
+  "test and fix", or "fix what's broken".
+  Proactively suggest when the user says a feature is ready for testing
+  or asks "does this work?". Three tiers: Quick (critical/high only),
+  Standard (+ medium), Exhaustive (+ cosmetic). Produces before/after health scores,
+  fix evidence, and a ship-readiness summary. For report-only mode, use /qa-only.
 allowed-tools:
   - Bash
   - Read
@@ -21,7 +25,7 @@ allowed-tools:
 <!-- AUTO-GENERATED from SKILL.md.tmpl — do not edit directly -->
 <!-- Regenerate: bun run gen:skill-docs -->
 
-## Preamble (먼저 실행)
+## Preamble (run first)
 
 ```bash
 _UPD=$(~/.claude/skills/gstack/bin/gstack-update-check 2>/dev/null || .claude/skills/gstack/bin/gstack-update-check 2>/dev/null || true)
@@ -31,115 +35,293 @@ touch ~/.gstack/sessions/"$PPID"
 _SESSIONS=$(find ~/.gstack/sessions -mmin -120 -type f 2>/dev/null | wc -l | tr -d ' ')
 find ~/.gstack/sessions -mmin +120 -type f -delete 2>/dev/null || true
 _CONTRIB=$(~/.claude/skills/gstack/bin/gstack-config get gstack_contributor 2>/dev/null || true)
+_PROACTIVE=$(~/.claude/skills/gstack/bin/gstack-config get proactive 2>/dev/null || echo "true")
 _BRANCH=$(git branch --show-current 2>/dev/null || echo "unknown")
 echo "BRANCH: $_BRANCH"
+echo "PROACTIVE: $_PROACTIVE"
+source <(~/.claude/skills/gstack/bin/gstack-repo-mode 2>/dev/null) || true
+REPO_MODE=${REPO_MODE:-unknown}
+echo "REPO_MODE: $REPO_MODE"
+_LAKE_SEEN=$([ -f ~/.gstack/.completeness-intro-seen ] && echo "yes" || echo "no")
+echo "LAKE_INTRO: $_LAKE_SEEN"
+_TEL=$(~/.claude/skills/gstack/bin/gstack-config get telemetry 2>/dev/null || true)
+_TEL_PROMPTED=$([ -f ~/.gstack/.telemetry-prompted ] && echo "yes" || echo "no")
+_TEL_START=$(date +%s)
+_SESSION_ID="$$-$(date +%s)"
+echo "TELEMETRY: ${_TEL:-off}"
+echo "TEL_PROMPTED: $_TEL_PROMPTED"
+mkdir -p ~/.gstack/analytics
+echo '{"skill":"qa","ts":"'$(date -u +%Y-%m-%dT%H:%M:%SZ)'","repo":"'$(basename "$(git rev-parse --show-toplevel 2>/dev/null)" 2>/dev/null || echo "unknown")'"}'  >> ~/.gstack/analytics/skill-usage.jsonl 2>/dev/null || true
+# zsh-compatible: use find instead of glob to avoid NOMATCH error
+for _PF in $(find ~/.gstack/analytics -maxdepth 1 -name '.pending-*' 2>/dev/null); do [ -f "$_PF" ] && ~/.claude/skills/gstack/bin/gstack-telemetry-log --event-type skill_run --skill _pending_finalize --outcome unknown --session-id "$_SESSION_ID" 2>/dev/null || true; break; done
 ```
 
-출력에 `UPGRADE_AVAILABLE <old> <new>`가 표시되면: `~/.claude/skills/gstack/gstack-upgrade/SKILL.md`를 읽고 "Inline upgrade flow"를 따르세요 (자동 업그레이드가 설정된 경우 자동으로 진행, 그렇지 않으면 4가지 옵션으로 AskUserQuestion, 거부 시 snooze 상태 저장). `JUST_UPGRADED <from> <to>`가 표시되면: 사용자에게 "gstack v{to} 실행 중 (방금 업데이트됨!)"이라고 알리고 계속 진행합니다.
+If `PROACTIVE` is `"false"`, do not proactively suggest gstack skills — only invoke
+them when the user explicitly asks. The user opted out of proactive suggestions.
 
-## AskUserQuestion 형식
+If output shows `UPGRADE_AVAILABLE <old> <new>`: read `~/.claude/skills/gstack/gstack-upgrade/SKILL.md` and follow the "Inline upgrade flow" (auto-upgrade if configured, otherwise AskUserQuestion with 4 options, write snooze state if declined). If `JUST_UPGRADED <from> <to>`: tell user "Running gstack v{to} (just updated!)" and continue.
 
-**모든 AskUserQuestion 호출 시 반드시 이 구조를 따르세요:**
-1. **상황 재확인:** 프로젝트, 현재 branch (preamble에서 출력된 `_BRANCH` 값 사용 — 대화 기록이나 gitStatus의 branch 사용 금지), 현재 계획/작업을 명시합니다. (1-2 문장)
-2. **단순화:** 영리한 16세도 이해할 수 있는 평이한 언어로 문제를 설명합니다. 함수명, 내부 전문 용어, 구현 세부사항은 사용하지 않습니다. 구체적인 예시와 비유를 사용합니다. 무엇이라 불리는지가 아닌 무엇을 하는지를 설명합니다.
-3. **추천:** `RECOMMENDATION: [X]를 선택하세요. 이유: [한 줄 설명]`
-4. **옵션:** 알파벳 옵션: `A) ... B) ... C) ...`
+If `LAKE_INTRO` is `no`: Before continuing, introduce the Completeness Principle.
+Tell the user: "gstack follows the **Boil the Lake** principle — always do the complete
+thing when AI makes the marginal cost near-zero. Read more: https://garryslist.org/posts/boil-the-ocean"
+Then offer to open the essay in their default browser:
 
-사용자가 20분 동안 이 창을 보지 않았고 코드를 열지 않은 상태라고 가정하세요. 설명을 이해하기 위해 소스를 읽어야 한다면 너무 복잡한 것입니다.
+```bash
+open https://garryslist.org/posts/boil-the-ocean
+touch ~/.gstack/.completeness-intro-seen
+```
 
-스킬별 지침에서 이 기본 형식 위에 추가 형식 규칙을 추가할 수 있습니다.
+Only run `open` if the user says yes. Always run `touch` to mark as seen. This only happens once.
+
+If `TEL_PROMPTED` is `no` AND `LAKE_INTRO` is `yes`: After the lake intro is handled,
+ask the user about telemetry. Use AskUserQuestion:
+
+> Help gstack get better! Community mode shares usage data (which skills you use, how long
+> they take, crash info) with a stable device ID so we can track trends and fix bugs faster.
+> No code, file paths, or repo names are ever sent.
+> Change anytime with `gstack-config set telemetry off`.
+
+Options:
+- A) Help gstack get better! (recommended)
+- B) No thanks
+
+If A: run `~/.claude/skills/gstack/bin/gstack-config set telemetry community`
+
+If B: ask a follow-up AskUserQuestion:
+
+> How about anonymous mode? We just learn that *someone* used gstack — no unique ID,
+> no way to connect sessions. Just a counter that helps us know if anyone's out there.
+
+Options:
+- A) Sure, anonymous is fine
+- B) No thanks, fully off
+
+If B→A: run `~/.claude/skills/gstack/bin/gstack-config set telemetry anonymous`
+If B→B: run `~/.claude/skills/gstack/bin/gstack-config set telemetry off`
+
+Always run:
+```bash
+touch ~/.gstack/.telemetry-prompted
+```
+
+This only happens once. If `TEL_PROMPTED` is `yes`, skip this entirely.
+
+## AskUserQuestion Format
+
+**ALWAYS follow this structure for every AskUserQuestion call:**
+1. **Re-ground:** State the project, the current branch (use the `_BRANCH` value printed by the preamble — NOT any branch from conversation history or gitStatus), and the current plan/task. (1-2 sentences)
+2. **Simplify:** Explain the problem in plain English a smart 16-year-old could follow. No raw function names, no internal jargon, no implementation details. Use concrete examples and analogies. Say what it DOES, not what it's called.
+3. **Recommend:** `RECOMMENDATION: Choose [X] because [one-line reason]` — always prefer the complete option over shortcuts (see Completeness Principle). Include `Completeness: X/10` for each option. Calibration: 10 = complete implementation (all edge cases, full coverage), 7 = covers happy path but skips some edges, 3 = shortcut that defers significant work. If both options are 8+, pick the higher; if one is ≤5, flag it.
+4. **Options:** Lettered options: `A) ... B) ... C) ...` — when an option involves effort, show both scales: `(human: ~X / CC: ~Y)`
+
+Assume the user hasn't looked at this window in 20 minutes and doesn't have the code open. If you'd need to read the source to understand your own explanation, it's too complex.
+
+Per-skill instructions may add additional formatting rules on top of this baseline.
+
+## Completeness Principle — Boil the Lake
+
+AI makes completeness near-free. Always recommend the complete option over shortcuts — the delta is minutes with CC+gstack. A "lake" (100% coverage, all edge cases) is boilable; an "ocean" (full rewrite, multi-quarter migration) is not. Boil lakes, flag oceans.
+
+**Effort reference** — always show both scales:
+
+| Task type | Human team | CC+gstack | Compression |
+|-----------|-----------|-----------|-------------|
+| Boilerplate | 2 days | 15 min | ~100x |
+| Tests | 1 day | 15 min | ~50x |
+| Feature | 1 week | 30 min | ~30x |
+| Bug fix | 4 hours | 15 min | ~20x |
+
+Include `Completeness: X/10` for each option (10=all edge cases, 7=happy path, 3=shortcut).
+
+## Repo Ownership — See Something, Say Something
+
+`REPO_MODE` controls how to handle issues outside your branch:
+- **`solo`** — You own everything. Investigate and offer to fix proactively.
+- **`collaborative`** / **`unknown`** — Flag via AskUserQuestion, don't fix (may be someone else's).
+
+Always flag anything that looks wrong — one sentence, what you noticed and its impact.
+
+## Search Before Building
+
+Before building anything unfamiliar, **search first.** See `~/.claude/skills/gstack/ETHOS.md`.
+- **Layer 1** (tried and true) — don't reinvent. **Layer 2** (new and popular) — scrutinize. **Layer 3** (first principles) — prize above all.
+
+**Eureka:** When first-principles reasoning contradicts conventional wisdom, name it and log:
+```bash
+jq -n --arg ts "$(date -u +%Y-%m-%dT%H:%M:%SZ)" --arg skill "SKILL_NAME" --arg branch "$(git branch --show-current 2>/dev/null)" --arg insight "ONE_LINE_SUMMARY" '{ts:$ts,skill:$skill,branch:$branch,insight:$insight}' >> ~/.gstack/analytics/eureka.jsonl 2>/dev/null || true
+```
 
 ## Contributor Mode
 
-`_CONTRIB`가 `true`인 경우: **contributor mode**입니다. 당신은 gstack을 개선하는 데 도움을 주는 gstack 사용자입니다.
+If `_CONTRIB` is `true`: you are in **contributor mode**. At the end of each major workflow step, rate your gstack experience 0-10. If not a 10 and there's an actionable bug or improvement — file a field report.
 
-**모든 주요 워크플로우 단계가 끝날 때마다** (매 명령 후가 아닌), 사용한 gstack 도구를 되돌아보세요. 0~10점으로 경험을 평가하세요. 10점이 아니라면 이유를 생각해보세요. gstack 코드나 skill 마크다운이 더 잘할 수 있었던 명확하고 실행 가능한 버그나 흥미로운 개선점이 있다면 — field report를 제출하세요. 우리 contributor가 gstack을 더 좋게 만드는 데 도움을 줄 수 있습니다!
+**File only:** gstack tooling bugs where the input was reasonable but gstack failed. **Skip:** user app bugs, network errors, auth failures on user's site.
 
-**기준 — 이것이 기준선입니다:** 예를 들어, `$B js "await fetch(...)"` 는 gstack이 비동기 컨텍스트로 표현식을 감싸지 않아 `SyntaxError: await is only valid in async functions`로 실패했습니다. 작은 문제지만 입력이 합리적이었고 gstack이 처리했어야 했습니다 — 이런 것이 제출할 가치가 있는 것입니다. 이보다 덜 중요한 것은 무시하세요.
-
-**제출하지 않아도 될 것:** 사용자 앱 버그, 사용자 URL에 대한 네트워크 오류, 사용자 사이트의 인증 실패, 사용자 자신의 JS 로직 버그.
-
-**제출 방법:** `~/.gstack/contributor-logs/{slug}.md`에 **아래 모든 섹션을 포함하여** 작성합니다 (잘라내지 말 것 — Date/Version 푸터까지 모든 섹션 포함):
-
+**To file:** write `~/.gstack/contributor-logs/{slug}.md`:
 ```
 # {Title}
-
-Hey gstack team — ran into this while using /{skill-name}:
-
-**What I was trying to do:** {what the user/agent was attempting}
-**What happened instead:** {what actually happened}
-**My rating:** {0-10} — {one sentence on why it wasn't a 10}
-
-## Steps to reproduce
+**What I tried:** {action} | **What happened:** {result} | **Rating:** {0-10}
+## Repro
 1. {step}
-
-## Raw output
-```
-{paste the actual error or unexpected output here}
-```
-
 ## What would make this a 10
-{one sentence: what gstack should have done differently}
+{one sentence}
+**Date:** {YYYY-MM-DD} | **Version:** {version} | **Skill:** /{skill}
+```
+Slug: lowercase hyphens, max 60 chars. Skip if exists. Max 3/session. File inline, don't stop.
 
-**Date:** {YYYY-MM-DD} | **Version:** {gstack version} | **Skill:** /{skill}
+## Completion Status Protocol
+
+When completing a skill workflow, report status using one of:
+- **DONE** — All steps completed successfully. Evidence provided for each claim.
+- **DONE_WITH_CONCERNS** — Completed, but with issues the user should know about. List each concern.
+- **BLOCKED** — Cannot proceed. State what is blocking and what was tried.
+- **NEEDS_CONTEXT** — Missing information required to continue. State exactly what you need.
+
+### Escalation
+
+It is always OK to stop and say "this is too hard for me" or "I'm not confident in this result."
+
+Bad work is worse than no work. You will not be penalized for escalating.
+- If you have attempted a task 3 times without success, STOP and escalate.
+- If you are uncertain about a security-sensitive change, STOP and escalate.
+- If the scope of work exceeds what you can verify, STOP and escalate.
+
+Escalation format:
+```
+STATUS: BLOCKED | NEEDS_CONTEXT
+REASON: [1-2 sentences]
+ATTEMPTED: [what you tried]
+RECOMMENDATION: [what the user should do next]
 ```
 
-Slug: 소문자, 하이픈 사용, 최대 60자 (예: `browse-js-no-await`). 파일이 이미 존재하면 건너뜁니다. 세션당 최대 3개 보고서. 인라인으로 제출하고 계속 진행 — 워크플로우를 중단하지 마세요. 사용자에게 알립니다: "Filed gstack field report: {title}"
+## Telemetry (run last)
 
-## Step 0: base branch 감지
+After the skill workflow completes (success, error, or abort), log the telemetry event.
+Determine the skill name from the `name:` field in this file's YAML frontmatter.
+Determine the outcome from the workflow result (success if completed normally, error
+if it failed, abort if the user interrupted).
 
-이 PR이 대상으로 하는 branch를 결정합니다. 이후 모든 단계에서 이 결과를 "base branch"로 사용합니다.
+**PLAN MODE EXCEPTION — ALWAYS RUN:** This command writes telemetry to
+`~/.gstack/analytics/` (user config directory, not project files). The skill
+preamble already writes to the same directory — this is the same pattern.
+Skipping this command loses session duration and outcome data.
 
-1. 이 branch에 이미 PR이 존재하는지 확인합니다:
+Run this bash:
+
+```bash
+_TEL_END=$(date +%s)
+_TEL_DUR=$(( _TEL_END - _TEL_START ))
+rm -f ~/.gstack/analytics/.pending-"$_SESSION_ID" 2>/dev/null || true
+~/.claude/skills/gstack/bin/gstack-telemetry-log \
+  --skill "SKILL_NAME" --duration "$_TEL_DUR" --outcome "OUTCOME" \
+  --used-browse "USED_BROWSE" --session-id "$_SESSION_ID" 2>/dev/null &
+```
+
+Replace `SKILL_NAME` with the actual skill name from frontmatter, `OUTCOME` with
+success/error/abort, and `USED_BROWSE` with true/false based on whether `$B` was used.
+If you cannot determine the outcome, use "unknown". This runs in the background and
+never blocks the user.
+
+## Plan Status Footer
+
+When you are in plan mode and about to call ExitPlanMode:
+
+1. Check if the plan file already has a `## GSTACK REVIEW REPORT` section.
+2. If it DOES — skip (a review skill already wrote a richer report).
+3. If it does NOT — run this command:
+
+\`\`\`bash
+~/.claude/skills/gstack/bin/gstack-review-read
+\`\`\`
+
+Then write a `## GSTACK REVIEW REPORT` section to the end of the plan file:
+
+- If the output contains review entries (JSONL lines before `---CONFIG---`): format the
+  standard report table with runs/status/findings per skill, same format as the review
+  skills use.
+- If the output is `NO_REVIEWS` or empty: write this placeholder table:
+
+\`\`\`markdown
+## GSTACK REVIEW REPORT
+
+| Review | Trigger | Why | Runs | Status | Findings |
+|--------|---------|-----|------|--------|----------|
+| CEO Review | \`/plan-ceo-review\` | Scope & strategy | 0 | — | — |
+| Codex Review | \`/codex review\` | Independent 2nd opinion | 0 | — | — |
+| Eng Review | \`/plan-eng-review\` | Architecture & tests (required) | 0 | — | — |
+| Design Review | \`/plan-design-review\` | UI/UX gaps | 0 | — | — |
+
+**VERDICT:** NO REVIEWS YET — run \`/autoplan\` for full review pipeline, or individual reviews above.
+\`\`\`
+
+**PLAN MODE EXCEPTION — ALWAYS RUN:** This writes to the plan file, which is the one
+file you are allowed to edit in plan mode. The plan file review report is part of the
+plan's living status.
+
+## Step 0: Detect base branch
+
+Determine which branch this PR targets. Use the result as "the base branch" in all subsequent steps.
+
+1. Check if a PR already exists for this branch:
    `gh pr view --json baseRefName -q .baseRefName`
-   성공하면 출력된 branch 이름을 base branch로 사용합니다.
+   If this succeeds, use the printed branch name as the base branch.
 
-2. PR이 없으면 (명령 실패), 저장소의 기본 branch를 감지합니다:
+2. If no PR exists (command fails), detect the repo's default branch:
    `gh repo view --json defaultBranchRef -q .defaultBranchRef.name`
 
-3. 두 명령이 모두 실패하면 `main`으로 대체합니다.
+3. If both commands fail, fall back to `main`.
 
-감지된 base branch 이름을 출력합니다. 이후 모든 `git diff`, `git log`,
-`git fetch`, `git merge`, `gh pr create` 명령에서 지침의 "the base branch" 위치에
-감지된 branch 이름을 대입합니다.
+Print the detected base branch name. In every subsequent `git diff`, `git log`,
+`git fetch`, `git merge`, and `gh pr create` command, substitute the detected
+branch name wherever the instructions say "the base branch."
 
 ---
 
-# /qa: 테스트 → 수정 → 검증
+# /qa: Test → Fix → Verify
 
-당신은 QA 엔지니어이자 버그 수정 엔지니어입니다. 실제 사용자처럼 웹 애플리케이션을 테스트합니다 — 모든 것을 클릭하고, 모든 폼을 채우고, 모든 상태를 확인하세요. 버그를 발견하면 소스 코드에서 원자적 commit으로 수정한 후 재검증합니다. 수정 전후 근거가 포함된 구조화된 보고서를 작성합니다.
+You are a QA engineer AND a bug-fix engineer. Test web applications like a real user — click everything, fill every form, check every state. When you find bugs, fix them in source code with atomic commits, then re-verify. Produce a structured report with before/after evidence.
 
-## 설정
+## Setup
 
-**사용자의 요청에서 다음 파라미터를 파싱합니다:**
+**Parse the user's request for these parameters:**
 
-| 파라미터 | 기본값 | 오버라이드 예시 |
+| Parameter | Default | Override example |
 |-----------|---------|-----------------:|
-| Target URL | (자동 감지 또는 필수) | `https://myapp.com`, `http://localhost:3000` |
+| Target URL | (auto-detect or required) | `https://myapp.com`, `http://localhost:3000` |
 | Tier | Standard | `--quick`, `--exhaustive` |
 | Mode | full | `--regression .gstack/qa-reports/baseline.json` |
 | Output dir | `.gstack/qa-reports/` | `Output to /tmp/qa` |
-| Scope | 전체 앱 (또는 diff-scoped) | `Focus on the billing page` |
-| Auth | 없음 | `Sign in to user@example.com`, `Import cookies from cookies.json` |
+| Scope | Full app (or diff-scoped) | `Focus on the billing page` |
+| Auth | None | `Sign in to user@example.com`, `Import cookies from cookies.json` |
 
-**Tier에 따라 수정할 이슈가 결정됩니다:**
-- **Quick:** critical + high severity만 수정
-- **Standard:** + medium severity (기본값)
+**Tiers determine which issues get fixed:**
+- **Quick:** Fix critical + high severity only
+- **Standard:** + medium severity (default)
 - **Exhaustive:** + low/cosmetic severity
 
-**URL이 없고 feature branch에 있는 경우:** 자동으로 **diff-aware mode**로 진입합니다 (아래 Modes 참고). 이것이 가장 일반적인 케이스입니다 — 사용자가 branch에 코드를 배포하고 잘 작동하는지 확인하고 싶은 경우입니다.
+**If no URL is given and you're on a feature branch:** Automatically enter **diff-aware mode** (see Modes below). This is the most common case — the user just shipped code on a branch and wants to verify it works.
 
-**시작 전 clean working tree 필요:**
+**Check for clean working tree:**
+
 ```bash
-if [ -n "$(git status --porcelain)" ]; then
-  echo "ERROR: Working tree is dirty. Commit or stash changes before running /qa."
-  exit 1
-fi
+git status --porcelain
 ```
 
-**browse 바이너리 찾기:**
+If the output is non-empty (working tree is dirty), **STOP** and use AskUserQuestion:
 
-## SETUP (browse 명령 전에 반드시 이 확인 실행)
+"Your working tree has uncommitted changes. /qa needs a clean tree so each bug fix gets its own atomic commit."
+
+- A) Commit my changes — commit all current changes with a descriptive message, then start QA
+- B) Stash my changes — stash, run QA, pop the stash after
+- C) Abort — I'll clean up manually
+
+RECOMMENDATION: Choose A because uncommitted work should be preserved as a commit before QA adds its own fix commits.
+
+After the user chooses, execute their choice (commit or stash), then continue with setup.
+
+**Find the browse binary:**
+
+## SETUP (run this check BEFORE any browse command)
 
 ```bash
 _ROOT=$(git rev-parse --show-toplevel 2>/dev/null)
@@ -153,12 +335,167 @@ else
 fi
 ```
 
-`NEEDS_SETUP`인 경우:
-1. 사용자에게 안내합니다: "gstack browse는 최초 1회 빌드가 필요합니다 (~10초). 진행할까요?" 그런 다음 STOP하고 기다립니다.
-2. 실행: `cd <SKILL_DIR> && ./setup`
-3. `bun`이 설치되지 않은 경우: `curl -fsSL https://bun.sh/install | bash`
+If `NEEDS_SETUP`:
+1. Tell the user: "gstack browse needs a one-time build (~10 seconds). OK to proceed?" Then STOP and wait.
+2. Run: `cd <SKILL_DIR> && ./setup`
+3. If `bun` is not installed: `curl -fsSL https://bun.sh/install | bash`
 
-**출력 디렉토리 생성:**
+**Check test framework (bootstrap if needed):**
+
+## Test Framework Bootstrap
+
+**Detect existing test framework and project runtime:**
+
+```bash
+# Detect project runtime
+[ -f Gemfile ] && echo "RUNTIME:ruby"
+[ -f package.json ] && echo "RUNTIME:node"
+[ -f requirements.txt ] || [ -f pyproject.toml ] && echo "RUNTIME:python"
+[ -f go.mod ] && echo "RUNTIME:go"
+[ -f Cargo.toml ] && echo "RUNTIME:rust"
+[ -f composer.json ] && echo "RUNTIME:php"
+[ -f mix.exs ] && echo "RUNTIME:elixir"
+# Detect sub-frameworks
+[ -f Gemfile ] && grep -q "rails" Gemfile 2>/dev/null && echo "FRAMEWORK:rails"
+[ -f package.json ] && grep -q '"next"' package.json 2>/dev/null && echo "FRAMEWORK:nextjs"
+# Check for existing test infrastructure
+ls jest.config.* vitest.config.* playwright.config.* .rspec pytest.ini pyproject.toml phpunit.xml 2>/dev/null
+ls -d test/ tests/ spec/ __tests__/ cypress/ e2e/ 2>/dev/null
+# Check opt-out marker
+[ -f .gstack/no-test-bootstrap ] && echo "BOOTSTRAP_DECLINED"
+```
+
+**If test framework detected** (config files or test directories found):
+Print "Test framework detected: {name} ({N} existing tests). Skipping bootstrap."
+Read 2-3 existing test files to learn conventions (naming, imports, assertion style, setup patterns).
+Store conventions as prose context for use in Phase 8e.5 or Step 3.4. **Skip the rest of bootstrap.**
+
+**If BOOTSTRAP_DECLINED** appears: Print "Test bootstrap previously declined — skipping." **Skip the rest of bootstrap.**
+
+**If NO runtime detected** (no config files found): Use AskUserQuestion:
+"I couldn't detect your project's language. What runtime are you using?"
+Options: A) Node.js/TypeScript B) Ruby/Rails C) Python D) Go E) Rust F) PHP G) Elixir H) This project doesn't need tests.
+If user picks H → write `.gstack/no-test-bootstrap` and continue without tests.
+
+**If runtime detected but no test framework — bootstrap:**
+
+### B2. Research best practices
+
+Use WebSearch to find current best practices for the detected runtime:
+- `"[runtime] best test framework 2025 2026"`
+- `"[framework A] vs [framework B] comparison"`
+
+If WebSearch is unavailable, use this built-in knowledge table:
+
+| Runtime | Primary recommendation | Alternative |
+|---------|----------------------|-------------|
+| Ruby/Rails | minitest + fixtures + capybara | rspec + factory_bot + shoulda-matchers |
+| Node.js | vitest + @testing-library | jest + @testing-library |
+| Next.js | vitest + @testing-library/react + playwright | jest + cypress |
+| Python | pytest + pytest-cov | unittest |
+| Go | stdlib testing + testify | stdlib only |
+| Rust | cargo test (built-in) + mockall | — |
+| PHP | phpunit + mockery | pest |
+| Elixir | ExUnit (built-in) + ex_machina | — |
+
+### B3. Framework selection
+
+Use AskUserQuestion:
+"I detected this is a [Runtime/Framework] project with no test framework. I researched current best practices. Here are the options:
+A) [Primary] — [rationale]. Includes: [packages]. Supports: unit, integration, smoke, e2e
+B) [Alternative] — [rationale]. Includes: [packages]
+C) Skip — don't set up testing right now
+RECOMMENDATION: Choose A because [reason based on project context]"
+
+If user picks C → write `.gstack/no-test-bootstrap`. Tell user: "If you change your mind later, delete `.gstack/no-test-bootstrap` and re-run." Continue without tests.
+
+If multiple runtimes detected (monorepo) → ask which runtime to set up first, with option to do both sequentially.
+
+### B4. Install and configure
+
+1. Install the chosen packages (npm/bun/gem/pip/etc.)
+2. Create minimal config file
+3. Create directory structure (test/, spec/, etc.)
+4. Create one example test matching the project's code to verify setup works
+
+If package installation fails → debug once. If still failing → revert with `git checkout -- package.json package-lock.json` (or equivalent for the runtime). Warn user and continue without tests.
+
+### B4.5. First real tests
+
+Generate 3-5 real tests for existing code:
+
+1. **Find recently changed files:** `git log --since=30.days --name-only --format="" | sort | uniq -c | sort -rn | head -10`
+2. **Prioritize by risk:** Error handlers > business logic with conditionals > API endpoints > pure functions
+3. **For each file:** Write one test that tests real behavior with meaningful assertions. Never `expect(x).toBeDefined()` — test what the code DOES.
+4. Run each test. Passes → keep. Fails → fix once. Still fails → delete silently.
+5. Generate at least 1 test, cap at 5.
+
+Never import secrets, API keys, or credentials in test files. Use environment variables or test fixtures.
+
+### B5. Verify
+
+```bash
+# Run the full test suite to confirm everything works
+{detected test command}
+```
+
+If tests fail → debug once. If still failing → revert all bootstrap changes and warn user.
+
+### B5.5. CI/CD pipeline
+
+```bash
+# Check CI provider
+ls -d .github/ 2>/dev/null && echo "CI:github"
+ls .gitlab-ci.yml .circleci/ bitrise.yml 2>/dev/null
+```
+
+If `.github/` exists (or no CI detected — default to GitHub Actions):
+Create `.github/workflows/test.yml` with:
+- `runs-on: ubuntu-latest`
+- Appropriate setup action for the runtime (setup-node, setup-ruby, setup-python, etc.)
+- The same test command verified in B5
+- Trigger: push + pull_request
+
+If non-GitHub CI detected → skip CI generation with note: "Detected {provider} — CI pipeline generation supports GitHub Actions only. Add test step to your existing pipeline manually."
+
+### B6. Create TESTING.md
+
+First check: If TESTING.md already exists → read it and update/append rather than overwriting. Never destroy existing content.
+
+Write TESTING.md with:
+- Philosophy: "100% test coverage is the key to great vibe coding. Tests let you move fast, trust your instincts, and ship with confidence — without them, vibe coding is just yolo coding. With tests, it's a superpower."
+- Framework name and version
+- How to run tests (the verified command from B5)
+- Test layers: Unit tests (what, where, when), Integration tests, Smoke tests, E2E tests
+- Conventions: file naming, assertion style, setup/teardown patterns
+
+### B7. Update CLAUDE.md
+
+First check: If CLAUDE.md already has a `## Testing` section → skip. Don't duplicate.
+
+Append a `## Testing` section:
+- Run command and test directory
+- Reference to TESTING.md
+- Test expectations:
+  - 100% test coverage is the goal — tests make vibe coding safe
+  - When writing new functions, write a corresponding test
+  - When fixing a bug, write a regression test
+  - When adding error handling, write a test that triggers the error
+  - When adding a conditional (if/else, switch), write tests for BOTH paths
+  - Never commit code that makes existing tests fail
+
+### B8. Commit
+
+```bash
+git status --porcelain
+```
+
+Only commit if there are changes. Stage all bootstrap files (config, test directory, TESTING.md, CLAUDE.md, .github/workflows/test.yml if created):
+`git commit -m "chore: bootstrap test framework ({framework name})"`
+
+---
+
+**Create output directories:**
 
 ```bash
 mkdir -p .gstack/qa-reports/screenshots
@@ -166,134 +503,136 @@ mkdir -p .gstack/qa-reports/screenshots
 
 ---
 
-## 테스트 계획 컨텍스트
+## Test Plan Context
 
-git diff 휴리스틱으로 대체하기 전에 더 풍부한 테스트 계획 소스를 확인합니다:
+Before falling back to git diff heuristics, check for richer test plan sources:
 
-1. **프로젝트 범위 테스트 계획:** 이 저장소의 최근 `*-test-plan-*.md` 파일을 `~/.gstack/projects/`에서 확인
+1. **Project-scoped test plans:** Check `~/.gstack/projects/` for recent `*-test-plan-*.md` files for this repo
    ```bash
-   SLUG=$(git remote get-url origin 2>/dev/null | sed 's|.*[:/]\([^/]*/[^/]*\)\.git$|\1|;s|.*[:/]\([^/]*/[^/]*\)$|\1|' | tr '/' '-')
+   eval "$(~/.claude/skills/gstack/bin/gstack-slug 2>/dev/null)"
    ls -t ~/.gstack/projects/$SLUG/*-test-plan-*.md 2>/dev/null | head -1
    ```
-2. **대화 컨텍스트:** 이 대화에서 이전 `/plan-eng-review` 또는 `/plan-ceo-review`가 테스트 계획 출력을 생성했는지 확인
-3. **더 풍부한 소스를 사용합니다.** 둘 다 없을 때만 git diff 분석으로 대체합니다.
+2. **Conversation context:** Check if a prior `/plan-eng-review` or `/plan-ceo-review` produced test plan output in this conversation
+3. **Use whichever source is richer.** Fall back to git diff analysis only if neither is available.
 
 ---
 
-## Phase 1-6: QA Baseline
+## Phases 1-6: QA Baseline
 
 ## Modes
 
-### Diff-aware (URL 없이 feature branch에 있을 때 자동)
+### Diff-aware (automatic when on a feature branch with no URL)
 
-이것은 개발자가 자신의 작업을 검증하는 **주요 모드**입니다. 사용자가 URL 없이 `/qa`를 입력하고 저장소가 feature branch에 있을 때 자동으로:
+This is the **primary mode** for developers verifying their work. When the user says `/qa` without a URL and the repo is on a feature branch, automatically:
 
-1. **branch diff 분석**으로 변경사항 파악:
+1. **Analyze the branch diff** to understand what changed:
    ```bash
    git diff main...HEAD --name-only
    git log main..HEAD --oneline
    ```
 
-2. **변경된 파일에서 영향받는 페이지/route 식별:**
-   - Controller/route 파일 → 서비스하는 URL 경로
-   - View/template/component 파일 → 렌더링하는 페이지
-   - Model/service 파일 → 해당 모델을 사용하는 페이지 (참조하는 controller 확인)
-   - CSS/style 파일 → 해당 스타일시트를 포함하는 페이지
-   - API endpoints → `$B js "await fetch('/api/...')"`로 직접 테스트
-   - Static 페이지 (markdown, HTML) → 직접 이동
+2. **Identify affected pages/routes** from the changed files:
+   - Controller/route files → which URL paths they serve
+   - View/template/component files → which pages render them
+   - Model/service files → which pages use those models (check controllers that reference them)
+   - CSS/style files → which pages include those stylesheets
+   - API endpoints → test them directly with `$B js "await fetch('/api/...')"`
+   - Static pages (markdown, HTML) → navigate to them directly
 
-3. **실행 중인 앱 감지** — 일반적인 로컬 개발 포트 확인:
+   **If no obvious pages/routes are identified from the diff:** Do not skip browser testing. The user invoked /qa because they want browser-based verification. Fall back to Quick mode — navigate to the homepage, follow the top 5 navigation targets, check console for errors, and test any interactive elements found. Backend, config, and infrastructure changes affect app behavior — always verify the app still works.
+
+3. **Detect the running app** — check common local dev ports:
    ```bash
    $B goto http://localhost:3000 2>/dev/null && echo "Found app on :3000" || \
    $B goto http://localhost:4000 2>/dev/null && echo "Found app on :4000" || \
    $B goto http://localhost:8080 2>/dev/null && echo "Found app on :8080"
    ```
-   로컬 앱을 찾을 수 없으면 PR이나 환경에서 staging/preview URL을 확인합니다. 아무것도 작동하지 않으면 사용자에게 URL을 요청합니다.
+   If no local app is found, check for a staging/preview URL in the PR or environment. If nothing works, ask the user for the URL.
 
-4. **영향받는 각 페이지/route 테스트:**
-   - 페이지 이동
-   - 스크린샷 촬영
-   - 오류에 대한 console 확인
-   - 변경사항이 인터랙티브한 경우 (폼, 버튼, 플로우), 인터랙션을 end-to-end로 테스트
-   - 액션 전후 `snapshot -D` 사용으로 변경사항이 예상된 효과를 가져왔는지 확인
+4. **Test each affected page/route:**
+   - Navigate to the page
+   - Take a screenshot
+   - Check console for errors
+   - If the change was interactive (forms, buttons, flows), test the interaction end-to-end
+   - Use `snapshot -D` before and after actions to verify the change had the expected effect
 
-5. **commit 메시지와 PR 설명을 교차 참조**하여 *의도* 파악 — 변경사항이 무엇을 해야 하는가? 실제로 그렇게 하는지 확인합니다.
+5. **Cross-reference with commit messages and PR description** to understand *intent* — what should the change do? Verify it actually does that.
 
-6. **TODOS.md 확인** (존재하는 경우) 변경된 파일과 관련된 알려진 버그 또는 이슈. TODO가 이 branch가 수정해야 할 버그를 설명한다면 테스트 계획에 추가합니다. QA 중 TODOS.md에 없는 새로운 버그를 발견하면 보고서에 기록합니다.
+6. **Check TODOS.md** (if it exists) for known bugs or issues related to the changed files. If a TODO describes a bug that this branch should fix, add it to your test plan. If you find a new bug during QA that isn't in TODOS.md, note it in the report.
 
-7. **branch 변경사항에 범위를 맞춘 결과 보고:**
-   - "변경사항 테스트: 이 branch에 의해 영향받는 N 페이지/route"
-   - 각 항목: 작동하는가? 스크린샷 근거.
-   - 인접 페이지에 regression이 있는가?
+7. **Report findings** scoped to the branch changes:
+   - "Changes tested: N pages/routes affected by this branch"
+   - For each: does it work? Screenshot evidence.
+   - Any regressions on adjacent pages?
 
-**사용자가 diff-aware mode에서 URL을 제공하는 경우:** 해당 URL을 기준으로 사용하되 변경된 파일에 대한 테스트 범위를 유지합니다.
+**If the user provides a URL with diff-aware mode:** Use that URL as the base but still scope testing to the changed files.
 
-### Full (URL이 제공될 때 기본값)
-체계적인 탐색. 도달 가능한 모든 페이지 방문. 5-10개의 잘 검증된 이슈 문서화. Health score 생성. 앱 크기에 따라 5-15분 소요.
+### Full (default when URL is provided)
+Systematic exploration. Visit every reachable page. Document 5-10 well-evidenced issues. Produce health score. Takes 5-15 minutes depending on app size.
 
 ### Quick (`--quick`)
-30초 스모크 테스트. 홈페이지 + 상위 5개 네비게이션 대상 방문. 확인: 페이지 로드? Console 오류? 깨진 링크? Health score 생성. 상세 이슈 문서화 없음.
+30-second smoke test. Visit homepage + top 5 navigation targets. Check: page loads? Console errors? Broken links? Produce health score. No detailed issue documentation.
 
 ### Regression (`--regression <baseline>`)
-전체 모드 실행 후 이전 실행의 `baseline.json` 로드. 비교: 어떤 이슈가 수정되었나? 새로운 것은? 점수 변화는? 보고서에 regression 섹션 추가.
+Run full mode, then load `baseline.json` from a previous run. Diff: which issues are fixed? Which are new? What's the score delta? Append regression section to report.
 
 ---
 
-## 워크플로우
+## Workflow
 
-### Phase 1: 초기화
+### Phase 1: Initialize
 
-1. browse 바이너리 찾기 (위 Setup 참고)
-2. 출력 디렉토리 생성
-3. 보고서 템플릿을 `qa/templates/qa-report-template.md`에서 출력 디렉토리로 복사
-4. 소요 시간 추적을 위한 타이머 시작
+1. Find browse binary (see Setup above)
+2. Create output directories
+3. Copy report template from `qa/templates/qa-report-template.md` to output dir
+4. Start timer for duration tracking
 
-### Phase 2: 인증 (필요한 경우)
+### Phase 2: Authenticate (if needed)
 
-**사용자가 인증 자격증명을 지정한 경우:**
+**If the user specified auth credentials:**
 
 ```bash
 $B goto <login-url>
-$B snapshot -i                    # 로그인 폼 찾기
+$B snapshot -i                    # find the login form
 $B fill @e3 "user@example.com"
-$B fill @e4 "[REDACTED]"         # 보고서에 실제 비밀번호 포함 금지
-$B click @e5                      # 제출
-$B snapshot -D                    # 로그인 성공 확인
+$B fill @e4 "[REDACTED]"         # NEVER include real passwords in report
+$B click @e5                      # submit
+$B snapshot -D                    # verify login succeeded
 ```
 
-**사용자가 cookie 파일을 제공한 경우:**
+**If the user provided a cookie file:**
 
 ```bash
 $B cookie-import cookies.json
 $B goto <target-url>
 ```
 
-**2FA/OTP가 필요한 경우:** 사용자에게 코드를 요청하고 기다립니다.
+**If 2FA/OTP is required:** Ask the user for the code and wait.
 
-**CAPTCHA가 차단하는 경우:** 사용자에게 안내합니다: "브라우저에서 CAPTCHA를 완료한 후 계속 진행하라고 알려주세요."
+**If CAPTCHA blocks you:** Tell the user: "Please complete the CAPTCHA in the browser, then tell me to continue."
 
-### Phase 3: 오리엔테이션
+### Phase 3: Orient
 
-애플리케이션의 맵 파악:
+Get a map of the application:
 
 ```bash
 $B goto <target-url>
 $B snapshot -i -a -o "$REPORT_DIR/screenshots/initial.png"
-$B links                          # 네비게이션 구조 맵핑
-$B console --errors               # 랜딩 시 오류가 있는가?
+$B links                          # map navigation structure
+$B console --errors               # any errors on landing?
 ```
 
-**프레임워크 감지** (보고서 메타데이터에 기록):
-- HTML에 `__next` 또는 `_next/data` 요청 → Next.js
-- `csrf-token` meta 태그 → Rails
-- URL에 `wp-content` → WordPress
-- 페이지 리로드 없는 클라이언트 사이드 라우팅 → SPA
+**Detect framework** (note in report metadata):
+- `__next` in HTML or `_next/data` requests → Next.js
+- `csrf-token` meta tag → Rails
+- `wp-content` in URLs → WordPress
+- Client-side routing with no page reloads → SPA
 
-**SPA의 경우:** 네비게이션이 클라이언트 사이드이므로 `links` 명령이 결과를 거의 반환하지 않을 수 있습니다. 대신 `snapshot -i`를 사용하여 nav 요소 (버튼, 메뉴 항목)를 찾습니다.
+**For SPAs:** The `links` command may return few results because navigation is client-side. Use `snapshot -i` to find nav elements (buttons, menu items) instead.
 
-### Phase 4: 탐색
+### Phase 4: Explore
 
-페이지를 체계적으로 방문합니다. 각 페이지에서:
+Visit pages systematically. At each page:
 
 ```bash
 $B goto <page-url>
@@ -301,37 +640,37 @@ $B snapshot -i -a -o "$REPORT_DIR/screenshots/page-name.png"
 $B console --errors
 ```
 
-그런 다음 **페이지별 탐색 체크리스트**를 따릅니다 (`qa/references/issue-taxonomy.md` 참고):
+Then follow the **per-page exploration checklist** (see `qa/references/issue-taxonomy.md`):
 
-1. **시각적 스캔** — 레이아웃 이슈를 위한 주석 달린 스크린샷 확인
-2. **인터랙티브 요소** — 버튼, 링크, 컨트롤 클릭. 작동하는가?
-3. **폼** — 채우고 제출. 빈 값, 유효하지 않은 값, 엣지 케이스 테스트
-4. **네비게이션** — 들어오고 나가는 모든 경로 확인
-5. **상태** — 빈 상태, 로딩, 오류, 오버플로우
-6. **Console** — 인터랙션 후 새로운 JS 오류가 있는가?
-7. **반응형** — 관련 있는 경우 모바일 viewport 확인:
+1. **Visual scan** — Look at the annotated screenshot for layout issues
+2. **Interactive elements** — Click buttons, links, controls. Do they work?
+3. **Forms** — Fill and submit. Test empty, invalid, edge cases
+4. **Navigation** — Check all paths in and out
+5. **States** — Empty state, loading, error, overflow
+6. **Console** — Any new JS errors after interactions?
+7. **Responsiveness** — Check mobile viewport if relevant:
    ```bash
    $B viewport 375x812
    $B screenshot "$REPORT_DIR/screenshots/page-mobile.png"
    $B viewport 1280x720
    ```
 
-**깊이 판단:** 핵심 기능 (홈페이지, 대시보드, 체크아웃, 검색)에 더 많은 시간을 투자하고 보조 페이지 (소개, 이용약관, 개인정보 처리방침)에는 덜 투자합니다.
+**Depth judgment:** Spend more time on core features (homepage, dashboard, checkout, search) and less on secondary pages (about, terms, privacy).
 
-**Quick mode:** 오리엔테이션 phase의 홈페이지 + 상위 5개 네비게이션 대상만 방문합니다. 페이지별 체크리스트 건너뜀 — 로드되는가? Console 오류? 깨진 링크가 보이는가?만 확인합니다.
+**Quick mode:** Only visit homepage + top 5 navigation targets from the Orient phase. Skip the per-page checklist — just check: loads? Console errors? Broken links visible?
 
-### Phase 5: 문서화
+### Phase 5: Document
 
-각 이슈를 **발견 즉시** 문서화합니다 — 묶어서 처리하지 마세요.
+Document each issue **immediately when found** — don't batch them.
 
-**두 가지 근거 단계:**
+**Two evidence tiers:**
 
-**인터랙티브 버그** (깨진 플로우, 죽은 버튼, 폼 실패):
-1. 액션 전 스크린샷 촬영
-2. 액션 수행
-3. 결과를 보여주는 스크린샷 촬영
-4. 무엇이 변경되었는지 보여주기 위해 `snapshot -D` 사용
-5. 스크린샷을 참조하는 재현 단계 작성
+**Interactive bugs** (broken flows, dead buttons, form failures):
+1. Take a screenshot before the action
+2. Perform the action
+3. Take a screenshot showing the result
+4. Use `snapshot -D` to show what changed
+5. Write repro steps referencing screenshots
 
 ```bash
 $B screenshot "$REPORT_DIR/screenshots/issue-001-step-1.png"
@@ -340,24 +679,24 @@ $B screenshot "$REPORT_DIR/screenshots/issue-001-result.png"
 $B snapshot -D
 ```
 
-**정적 버그** (오타, 레이아웃 이슈, 이미지 누락):
-1. 문제를 보여주는 단일 주석 달린 스크린샷 촬영
-2. 무엇이 잘못되었는지 설명
+**Static bugs** (typos, layout issues, missing images):
+1. Take a single annotated screenshot showing the problem
+2. Describe what's wrong
 
 ```bash
 $B snapshot -i -a -o "$REPORT_DIR/screenshots/issue-002.png"
 ```
 
-**각 이슈를 즉시 보고서에 기록합니다** `qa/templates/qa-report-template.md`의 템플릿 형식을 사용합니다.
+**Write each issue to the report immediately** using the template format from `qa/templates/qa-report-template.md`.
 
-### Phase 6: 마무리
+### Phase 6: Wrap Up
 
-1. 아래 루브릭을 사용하여 **health score 계산**
-2. **"수정해야 할 상위 3가지"** 작성 — 가장 severity가 높은 3가지 이슈
-3. **Console health 요약 작성** — 페이지 전체에서 본 모든 console 오류 집계
-4. **요약 테이블의 severity 카운트 업데이트**
-5. **보고서 메타데이터 채우기** — 날짜, 소요 시간, 방문 페이지, 스크린샷 수, 프레임워크
-6. **Baseline 저장** — 다음 내용으로 `baseline.json` 작성:
+1. **Compute health score** using the rubric below
+2. **Write "Top 3 Things to Fix"** — the 3 highest-severity issues
+3. **Write console health summary** — aggregate all console errors seen across pages
+4. **Update severity counts** in the summary table
+5. **Fill in report metadata** — date, duration, pages visited, screenshot count, framework
+6. **Save baseline** — write `baseline.json` with:
    ```json
    {
      "date": "YYYY-MM-DD",
@@ -368,38 +707,38 @@ $B snapshot -i -a -o "$REPORT_DIR/screenshots/issue-002.png"
    }
    ```
 
-**Regression mode:** 보고서 작성 후 baseline 파일을 로드합니다. 비교:
-- Health score 변화
-- 수정된 이슈 (baseline에는 있지만 현재에는 없는 것)
-- 새로운 이슈 (현재에는 있지만 baseline에는 없는 것)
-- 보고서에 regression 섹션 추가
+**Regression mode:** After writing the report, load the baseline file. Compare:
+- Health score delta
+- Issues fixed (in baseline but not current)
+- New issues (in current but not baseline)
+- Append the regression section to the report
 
 ---
 
-## Health Score 루브릭
+## Health Score Rubric
 
-각 카테고리 점수 (0-100)를 계산하고 가중 평균을 냅니다.
+Compute each category score (0-100), then take the weighted average.
 
-### Console (가중치: 15%)
-- 0 오류 → 100
-- 1-3 오류 → 70
-- 4-10 오류 → 40
-- 10+ 오류 → 10
+### Console (weight: 15%)
+- 0 errors → 100
+- 1-3 errors → 70
+- 4-10 errors → 40
+- 10+ errors → 10
 
-### Links (가중치: 10%)
-- 0 깨진 링크 → 100
-- 각 깨진 링크마다 → -15 (최소 0)
+### Links (weight: 10%)
+- 0 broken → 100
+- Each broken link → -15 (minimum 0)
 
-### 카테고리별 점수 (Visual, Functional, UX, Content, Performance, Accessibility)
-각 카테고리는 100점에서 시작. 발견사항당 차감:
-- Critical 이슈 → -25
-- High 이슈 → -15
-- Medium 이슈 → -8
-- Low 이슈 → -3
-카테고리별 최소 0점.
+### Per-Category Scoring (Visual, Functional, UX, Content, Performance, Accessibility)
+Each category starts at 100. Deduct per finding:
+- Critical issue → -25
+- High issue → -15
+- Medium issue → -8
+- Low issue → -3
+Minimum 0 per category.
 
-### 가중치
-| 카테고리 | 가중치 |
+### Weights
+| Category | Weight |
 |----------|--------|
 | Console | 15% |
 | Links | 10% |
@@ -410,106 +749,108 @@ $B snapshot -i -a -o "$REPORT_DIR/screenshots/issue-002.png"
 | Content | 5% |
 | Accessibility | 15% |
 
-### 최종 점수
+### Final Score
 `score = Σ (category_score × weight)`
 
 ---
 
-## 프레임워크별 가이드
+## Framework-Specific Guidance
 
 ### Next.js
-- hydration 오류 (`Hydration failed`, `Text content did not match`)에 대한 console 확인
-- 네트워크에서 `_next/data` 요청 모니터링 — 404는 데이터 fetching 오류를 나타냄
-- 클라이언트 사이드 네비게이션 테스트 (링크 클릭, `goto`만 사용 금지) — 라우팅 이슈 포착
-- 동적 컨텐츠가 있는 페이지에서 CLS (Cumulative Layout Shift) 확인
+- Check console for hydration errors (`Hydration failed`, `Text content did not match`)
+- Monitor `_next/data` requests in network — 404s indicate broken data fetching
+- Test client-side navigation (click links, don't just `goto`) — catches routing issues
+- Check for CLS (Cumulative Layout Shift) on pages with dynamic content
 
 ### Rails
-- Console에서 N+1 쿼리 경고 확인 (개발 모드인 경우)
-- 폼에서 CSRF 토큰 존재 확인
-- Turbo/Stimulus 통합 테스트 — 페이지 전환이 부드럽게 작동하는가?
-- 플래시 메시지가 올바르게 표시되고 사라지는지 확인
+- Check for N+1 query warnings in console (if development mode)
+- Verify CSRF token presence in forms
+- Test Turbo/Stimulus integration — do page transitions work smoothly?
+- Check for flash messages appearing and dismissing correctly
 
 ### WordPress
-- 플러그인 충돌 확인 (다른 플러그인의 JS 오류)
-- 로그인한 사용자의 관리자 바 가시성 확인
-- REST API endpoint 테스트 (`/wp-json/`)
-- mixed content 경고 확인 (WP에서 일반적)
+- Check for plugin conflicts (JS errors from different plugins)
+- Verify admin bar visibility for logged-in users
+- Test REST API endpoints (`/wp-json/`)
+- Check for mixed content warnings (common with WP)
 
-### 일반 SPA (React, Vue, Angular)
-- 네비게이션에 `snapshot -i` 사용 — `links` 명령이 클라이언트 사이드 route를 놓침
-- stale 상태 확인 (다른 페이지로 이동 후 돌아오기 — 데이터가 새로고침되는가?)
-- 브라우저 뒤로/앞으로 테스트 — 앱이 history를 올바르게 처리하는가?
-- 메모리 누수 확인 (오랜 사용 후 console 모니터링)
-
----
-
-## 중요 규칙
-
-1. **재현이 전부입니다.** 모든 이슈에는 최소 한 장의 스크린샷이 필요합니다. 예외 없음.
-2. **문서화 전 확인.** 우연이 아닌 재현 가능한 것임을 확인하기 위해 이슈를 한 번 더 재시도합니다.
-3. **자격증명 포함 금지.** 재현 단계의 비밀번호에는 `[REDACTED]`를 작성합니다.
-4. **점진적으로 작성.** 발견할 때마다 보고서에 각 이슈를 추가합니다. 묶어서 처리하지 마세요.
-5. **소스 코드를 읽지 마세요.** 개발자가 아닌 사용자로 테스트합니다.
-6. **모든 인터랙션 후 console을 확인합니다.** 시각적으로 나타나지 않는 JS 오류도 버그입니다.
-7. **사용자처럼 테스트합니다.** 실제 데이터를 사용합니다. 완전한 워크플로우를 end-to-end로 진행합니다.
-8. **광범위함보다 깊이.** 근거가 있는 5-10개의 잘 문서화된 이슈 > 20개의 모호한 설명.
-9. **출력 파일을 삭제하지 마세요.** 스크린샷과 보고서는 누적됩니다 — 의도적입니다.
-10. **까다로운 UI에는 `snapshot -C`를 사용합니다.** 접근성 트리가 놓치는 클릭 가능한 div를 찾습니다.
-
-Phase 6 마지막에 baseline health score를 기록합니다.
+### General SPA (React, Vue, Angular)
+- Use `snapshot -i` for navigation — `links` command misses client-side routes
+- Check for stale state (navigate away and back — does data refresh?)
+- Test browser back/forward — does the app handle history correctly?
+- Check for memory leaks (monitor console after extended use)
 
 ---
 
-## 출력 구조
+## Important Rules
+
+1. **Repro is everything.** Every issue needs at least one screenshot. No exceptions.
+2. **Verify before documenting.** Retry the issue once to confirm it's reproducible, not a fluke.
+3. **Never include credentials.** Write `[REDACTED]` for passwords in repro steps.
+4. **Write incrementally.** Append each issue to the report as you find it. Don't batch.
+5. **Never read source code.** Test as a user, not a developer.
+6. **Check console after every interaction.** JS errors that don't surface visually are still bugs.
+7. **Test like a user.** Use realistic data. Walk through complete workflows end-to-end.
+8. **Depth over breadth.** 5-10 well-documented issues with evidence > 20 vague descriptions.
+9. **Never delete output files.** Screenshots and reports accumulate — that's intentional.
+10. **Use `snapshot -C` for tricky UIs.** Finds clickable divs that the accessibility tree misses.
+11. **Show screenshots to the user.** After every `$B screenshot`, `$B snapshot -a -o`, or `$B responsive` command, use the Read tool on the output file(s) so the user can see them inline. For `responsive` (3 files), Read all three. This is critical — without it, screenshots are invisible to the user.
+12. **Never refuse to use the browser.** When the user invokes /qa or /qa-only, they are requesting browser-based testing. Never suggest evals, unit tests, or other alternatives as a substitute. Even if the diff appears to have no UI changes, backend changes affect app behavior — always open the browser and test.
+
+Record baseline health score at end of Phase 6.
+
+---
+
+## Output Structure
 
 ```
 .gstack/qa-reports/
-├── qa-report-{domain}-{YYYY-MM-DD}.md    # 구조화된 보고서
+├── qa-report-{domain}-{YYYY-MM-DD}.md    # Structured report
 ├── screenshots/
-│   ├── initial.png                        # 랜딩 페이지 주석 달린 스크린샷
-│   ├── issue-001-step-1.png               # 이슈별 근거
+│   ├── initial.png                        # Landing page annotated screenshot
+│   ├── issue-001-step-1.png               # Per-issue evidence
 │   ├── issue-001-result.png
-│   ├── issue-001-before.png               # 수정 전 (수정된 경우)
-│   ├── issue-001-after.png                # 수정 후 (수정된 경우)
+│   ├── issue-001-before.png               # Before fix (if fixed)
+│   ├── issue-001-after.png                # After fix (if fixed)
 │   └── ...
-└── baseline.json                          # Regression mode용
+└── baseline.json                          # For regression mode
 ```
 
-보고서 파일명은 도메인과 날짜를 사용합니다: `qa-report-myapp-com-2026-03-12.md`
+Report filenames use the domain and date: `qa-report-myapp-com-2026-03-12.md`
 
 ---
 
-## Phase 7: 분류
+## Phase 7: Triage
 
-발견된 모든 이슈를 severity 순으로 정렬하고 선택한 tier에 따라 수정할 이슈를 결정합니다:
+Sort all discovered issues by severity, then decide which to fix based on the selected tier:
 
-- **Quick:** critical + high만 수정. medium/low는 "deferred"로 표시.
-- **Standard:** critical + high + medium 수정. low는 "deferred"로 표시.
-- **Exhaustive:** cosmetic/low severity를 포함한 모든 것 수정.
+- **Quick:** Fix critical + high only. Mark medium/low as "deferred."
+- **Standard:** Fix critical + high + medium. Mark low as "deferred."
+- **Exhaustive:** Fix all, including cosmetic/low severity.
 
-소스 코드에서 수정할 수 없는 이슈 (예: 서드파티 위젯 버그, 인프라 이슈)는 tier에 관계없이 "deferred"로 표시합니다.
+Mark issues that cannot be fixed from source code (e.g., third-party widget bugs, infrastructure issues) as "deferred" regardless of tier.
 
 ---
 
-## Phase 8: 수정 루프
+## Phase 8: Fix Loop
 
-수정 가능한 각 이슈를 severity 순서로 처리합니다:
+For each fixable issue, in severity order:
 
-### 8a. 소스 찾기
+### 8a. Locate source
 
 ```bash
-# 오류 메시지, 컴포넌트 이름, route 정의에 대해 Grep 실행
-# 영향받는 페이지와 일치하는 파일 패턴에 대해 Glob 실행
+# Grep for error messages, component names, route definitions
+# Glob for file patterns matching the affected page
 ```
 
-- 버그를 일으키는 소스 파일 찾기
-- 이슈와 직접 관련된 파일만 수정
+- Find the source file(s) responsible for the bug
+- ONLY modify files directly related to the issue
 
-### 8b. 수정
+### 8b. Fix
 
-- 소스 코드를 읽고 컨텍스트 이해
-- **최소한의 수정** — 이슈를 해결하는 가장 작은 변경
-- 주변 코드 리팩터링, 기능 추가, 관련 없는 것 "개선" 금지
+- Read the source code, understand the context
+- Make the **minimal fix** — smallest change that resolves the issue
+- Do NOT refactor surrounding code, add features, or "improve" unrelated things
 
 ### 8c. Commit
 
@@ -518,15 +859,15 @@ git add <only-changed-files>
 git commit -m "fix(qa): ISSUE-NNN — short description"
 ```
 
-- 수정당 하나의 commit. 여러 수정사항을 묶지 마세요.
-- 메시지 형식: `fix(qa): ISSUE-NNN — short description`
+- One commit per fix. Never bundle multiple fixes.
+- Message format: `fix(qa): ISSUE-NNN — short description`
 
-### 8d. 재테스트
+### 8d. Re-test
 
-- 영향받는 페이지로 다시 이동
-- **수정 전/후 스크린샷 쌍** 촬영
-- 오류에 대한 console 확인
-- 변경사항이 예상된 효과를 가져왔는지 `snapshot -D`로 확인
+- Navigate back to the affected page
+- Take **before/after screenshot pair**
+- Check console for errors
+- Use `snapshot -D` to verify the change had the expected effect
 
 ```bash
 $B goto <affected-url>
@@ -535,85 +876,137 @@ $B console --errors
 $B snapshot -D
 ```
 
-### 8e. 분류
+### 8e. Classify
 
-- **verified**: 재테스트에서 수정이 작동하고 새로운 오류가 발생하지 않음이 확인됨
-- **best-effort**: 수정이 적용되었지만 완전히 검증할 수 없음 (예: 인증 상태 필요, 외부 서비스)
-- **reverted**: regression 감지됨 → `git revert HEAD` → 이슈를 "deferred"로 표시
+- **verified**: re-test confirms the fix works, no new errors introduced
+- **best-effort**: fix applied but couldn't fully verify (e.g., needs auth state, external service)
+- **reverted**: regression detected → `git revert HEAD` → mark issue as "deferred"
 
-### 8f. 자기 규제 (중단하고 평가)
+### 8e.5. Regression Test
 
-5번 수정마다 (또는 revert 후) WTF-likelihood를 계산합니다:
+Skip if: classification is not "verified", OR the fix is purely visual/CSS with no JS behavior, OR no test framework was detected AND user declined bootstrap.
+
+**1. Study the project's existing test patterns:**
+
+Read 2-3 test files closest to the fix (same directory, same code type). Match exactly:
+- File naming, imports, assertion style, describe/it nesting, setup/teardown patterns
+The regression test must look like it was written by the same developer.
+
+**2. Trace the bug's codepath, then write a regression test:**
+
+Before writing the test, trace the data flow through the code you just fixed:
+- What input/state triggered the bug? (the exact precondition)
+- What codepath did it follow? (which branches, which function calls)
+- Where did it break? (the exact line/condition that failed)
+- What other inputs could hit the same codepath? (edge cases around the fix)
+
+The test MUST:
+- Set up the precondition that triggered the bug (the exact state that made it break)
+- Perform the action that exposed the bug
+- Assert the correct behavior (NOT "it renders" or "it doesn't throw")
+- If you found adjacent edge cases while tracing, test those too (e.g., null input, empty array, boundary value)
+- Include full attribution comment:
+  ```
+  // Regression: ISSUE-NNN — {what broke}
+  // Found by /qa on {YYYY-MM-DD}
+  // Report: .gstack/qa-reports/qa-report-{domain}-{date}.md
+  ```
+
+Test type decision:
+- Console error / JS exception / logic bug → unit or integration test
+- Broken form / API failure / data flow bug → integration test with request/response
+- Visual bug with JS behavior (broken dropdown, animation) → component test
+- Pure CSS → skip (caught by QA reruns)
+
+Generate unit tests. Mock all external dependencies (DB, API, Redis, file system).
+
+Use auto-incrementing names to avoid collisions: check existing `{name}.regression-*.test.{ext}` files, take max number + 1.
+
+**3. Run only the new test file:**
+
+```bash
+{detected test command} {new-test-file}
+```
+
+**4. Evaluate:**
+- Passes → commit: `git commit -m "test(qa): regression test for ISSUE-NNN — {desc}"`
+- Fails → fix test once. Still failing → delete test, defer.
+- Taking >2 min exploration → skip and defer.
+
+**5. WTF-likelihood exclusion:** Test commits don't count toward the heuristic.
+
+### 8f. Self-Regulation (STOP AND EVALUATE)
+
+Every 5 fixes (or after any revert), compute the WTF-likelihood:
 
 ```
 WTF-LIKELIHOOD:
-  0%에서 시작
-  각 revert:                +15%
-  3개 이상 파일을 건드리는 각 수정: +5%
-  15번째 수정 후:            +1% (추가 수정마다)
-  남은 Low severity 전체:   +10%
-  관련 없는 파일 건드리기:   +20%
+  Start at 0%
+  Each revert:                +15%
+  Each fix touching >3 files: +5%
+  After fix 15:               +1% per additional fix
+  All remaining Low severity: +10%
+  Touching unrelated files:   +20%
 ```
 
-**WTF > 20%인 경우:** 즉시 STOP. 지금까지 한 작업을 사용자에게 보여줍니다. 계속할지 물어봅니다.
+**If WTF > 20%:** STOP immediately. Show the user what you've done so far. Ask whether to continue.
 
-**최대 한도: 50번 수정.** 50번 수정 후에는 남은 이슈에 관계없이 중단합니다.
-
----
-
-## Phase 9: 최종 QA
-
-모든 수정이 적용된 후:
-
-1. 영향받는 모든 페이지에 대해 QA 재실행
-2. 최종 health score 계산
-3. **최종 점수가 baseline보다 낮은 경우:** 무언가 regression이 발생했음을 눈에 띄게 WARN
+**Hard cap: 50 fixes.** After 50 fixes, stop regardless of remaining issues.
 
 ---
 
-## Phase 10: 보고서
+## Phase 9: Final QA
 
-보고서를 로컬과 프로젝트 범위 위치 모두에 작성합니다:
+After all fixes are applied:
 
-**로컬:** `.gstack/qa-reports/qa-report-{domain}-{YYYY-MM-DD}.md`
+1. Re-run QA on all affected pages
+2. Compute final health score
+3. **If final score is WORSE than baseline:** WARN prominently — something regressed
 
-**프로젝트 범위:** 세션 간 컨텍스트를 위한 테스트 결과 아티팩트 작성:
+---
+
+## Phase 10: Report
+
+Write the report to both local and project-scoped locations:
+
+**Local:** `.gstack/qa-reports/qa-report-{domain}-{YYYY-MM-DD}.md`
+
+**Project-scoped:** Write test outcome artifact for cross-session context:
 ```bash
-SLUG=$(git remote get-url origin 2>/dev/null | sed 's|.*[:/]\([^/]*/[^/]*\)\.git$|\1|;s|.*[:/]\([^/]*/[^/]*\)$|\1|' | tr '/' '-')
-mkdir -p ~/.gstack/projects/$SLUG
+eval "$(~/.claude/skills/gstack/bin/gstack-slug 2>/dev/null)" && mkdir -p ~/.gstack/projects/$SLUG
 ```
-`~/.gstack/projects/{slug}/{user}-{branch}-test-outcome-{datetime}.md`에 작성
+Write to `~/.gstack/projects/{slug}/{user}-{branch}-test-outcome-{datetime}.md`
 
-**이슈별 추가 내용** (표준 보고서 템플릿 이외):
+**Per-issue additions** (beyond standard report template):
 - Fix Status: verified / best-effort / reverted / deferred
-- Commit SHA (수정된 경우)
-- 변경된 파일 (수정된 경우)
-- 수정 전/후 스크린샷 (수정된 경우)
+- Commit SHA (if fixed)
+- Files Changed (if fixed)
+- Before/After screenshots (if fixed)
 
-**요약 섹션:**
-- 발견된 총 이슈 수
-- 적용된 수정 (verified: X, best-effort: Y, reverted: Z)
-- Deferred 이슈
-- Health score 변화: baseline → final
+**Summary section:**
+- Total issues found
+- Fixes applied (verified: X, best-effort: Y, reverted: Z)
+- Deferred issues
+- Health score delta: baseline → final
 
-**PR 요약:** PR 설명에 적합한 한 줄 요약 포함:
-> "QA에서 N개 이슈 발견, M개 수정, health score X → Y."
-
----
-
-## Phase 11: TODOS.md 업데이트
-
-저장소에 `TODOS.md`가 있는 경우:
-
-1. **새로운 deferred 버그** → severity, 카테고리, 재현 단계와 함께 TODO로 추가
-2. **TODOS.md에 있던 수정된 버그** → "{branch}, {date}에 /qa로 수정됨"으로 주석 추가
+**PR Summary:** Include a one-line summary suitable for PR descriptions:
+> "QA found N issues, fixed M, health score X → Y."
 
 ---
 
-## 추가 규칙 (qa 전용)
+## Phase 11: TODOS.md Update
 
-11. **Clean working tree 필요.** `git status --porcelain`이 비어 있지 않으면 시작을 거부합니다.
-12. **수정당 하나의 commit.** 여러 수정사항을 하나의 commit에 묶지 마세요.
-13. **테스트 또는 CI 설정 수정 금지.** 애플리케이션 소스 코드만 수정합니다.
-14. **Regression 시 Revert.** 수정이 상황을 악화시키면 즉시 `git revert HEAD`를 실행합니다.
-15. **자기 규제.** WTF-likelihood 휴리스틱을 따르세요. 의심스러울 때는 중단하고 물어보세요.
+If the repo has a `TODOS.md`:
+
+1. **New deferred bugs** → add as TODOs with severity, category, and repro steps
+2. **Fixed bugs that were in TODOS.md** → annotate with "Fixed by /qa on {branch}, {date}"
+
+---
+
+## Additional Rules (qa-specific)
+
+11. **Clean working tree required.** If dirty, use AskUserQuestion to offer commit/stash/abort before proceeding.
+12. **One commit per fix.** Never bundle multiple fixes into one commit.
+13. **Only modify tests when generating regression tests in Phase 8e.5.** Never modify CI configuration. Never modify existing tests — only create new test files.
+14. **Revert on regression.** If a fix makes things worse, `git revert HEAD` immediately.
+15. **Self-regulate.** Follow the WTF-likelihood heuristic. When in doubt, stop and ask.
