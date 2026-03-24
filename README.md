@@ -123,9 +123,19 @@ gstack은 하나의 Claude Code 세션으로도 강력합니다. 10개면 판도
 | `/design-consultation`, `/plan-design-review` | ✅ | ✅ |
 | `/design-review`, `/document-release` | ✅ | ✅ |
 | `/browse`, `/qa`, `/setup-browser-cookies` | 설명만 제공 | ✅ (바이너리 포함) |
-| 브라우저 바이너리 (Playwright) | ❌ | ✅ |
+| 브라우저 바이너리 (Playwright) | ✅ (`./setup`으로 빌드) | ✅ |
 
-`/browse`, `/qa`, `/setup-browser-cookies`는 Playwright 바이너리가 필요합니다. 이 스킬들을 사용하려면 [원본 저장소](https://github.com/garrytan/gstack)를 참고하세요.
+`/browse`, `/qa`, `/setup-browser-cookies`는 Playwright 바이너리가 필요합니다. 아래 setup 스크립트로 원본 저장소에서 자동 빌드할 수 있습니다.
+
+### browse 설치 (선택)
+
+`/browse`, `/qa`, `/qa-only` 스킬을 사용하려면 browse 바이너리가 필요합니다. 요구사항: [bun](https://bun.sh)
+
+```bash
+cd ~/.claude/skills/gstack && ./setup
+```
+
+이 스크립트는 [원본 저장소](https://github.com/garrytan/gstack)에서 소스를 가져와 바이너리를 빌드하고, 런타임 의존성을 설치합니다. 약 10초 소요.
 
 ## 설치
 
