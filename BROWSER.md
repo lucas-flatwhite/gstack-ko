@@ -1,5 +1,7 @@
 # Browser — technical details
 
+> 참고: 이 문서는 upstream `gstack`의 브라우저 기능을 설명하는 한국어 reference입니다. 이 저장소는 해당 바이너리나 실행 코드를 포함하지 않습니다.
+
 This document covers the command reference and internals of gstack's headless browser.
 
 ## Command reference

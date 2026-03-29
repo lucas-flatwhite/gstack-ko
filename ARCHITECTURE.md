@@ -1,5 +1,7 @@
 # Architecture
 
+> 참고: 이 문서는 upstream `gstack`의 시스템 설계를 설명하는 한국어 reference입니다. `gstack-ko` 저장소 자체가 이 런타임을 포함하거나 유지한다는 뜻은 아닙니다.
+
 This document explains **why** gstack is built the way it is. For setup and commands, see CLAUDE.md. For contributing, see CONTRIBUTING.md.
 
 ## The core idea

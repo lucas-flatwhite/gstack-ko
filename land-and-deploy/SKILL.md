@@ -15,8 +15,8 @@ allowed-tools:
   - Glob
   - AskUserQuestion
 ---
-<!-- AUTO-GENERATED from SKILL.md.tmpl — do not edit directly -->
-<!-- Regenerate: bun run gen:skill-docs -->
+
+> Reference-only note: 이 저장소는 upstream `gstack`의 한국어 문서 레이어입니다. 아래 내용은 upstream 설치본을 기준으로 한 reference이며, 실제 실행은 upstream 환경을 따라야 합니다.
 
 ## Preamble (run first)
 
