@@ -8,6 +8,61 @@
 원본 저장소: https://github.com/garrytan/gstack<br>
 원작자: [Garry Tan](https://x.com/garrytan)
 
+## 대표 스킬
+
+`gstack-ko`의 첫 가치는 한국어 `SKILL.md`입니다. 아래 스킬들은 이 저장소에서 한국어 reference로 읽을 수 있는 대표 문서들입니다.
+
+표기 기준:
+
+- `upstream 의존`: 실제 실행에는 upstream `gstack` 환경이 필요합니다.
+- `reference-only`: 이 저장소는 설명 문서만 제공하며 실행 코드는 포함하지 않습니다.
+
+### 문제 재정의와 설계
+
+| 스킬 | 설명 |
+|---|---|
+| `/plan-ceo-review` | 요청 뒤에 숨은 더 큰 제품 문제를 다시 정의합니다. |
+| `/plan-eng-review` | 아키텍처, 데이터 흐름, 실패 모드, 테스트 관점을 정리합니다. |
+| `/design-consultation` | 제품 디자인 시스템 설계를 돕습니다. |
+| `/plan-design-review` | 디자인 감사 워크플로우를 설명합니다. `upstream 의존` |
+| `/office-hours` | 제품/전략 관점에서 방향을 점검하는 reference 문서를 제공합니다. |
+| `/autoplan` | 계획 생성 계열 워크플로우를 설명합니다. `upstream 의존` |
+
+### 리뷰와 QA
+
+| 스킬 | 설명 |
+|---|---|
+| `/review` | 프로덕션에서 터질 수 있는 리스크를 집요하게 찾습니다. |
+| `/qa` | 체계적 QA + 수정 워크플로우를 설명합니다. `reference-only`, `upstream 의존` |
+| `/qa-only` | 수정 없이 QA 리포트만 작성하는 흐름을 설명합니다. |
+| `/design-review` | 디자인 리뷰 워크플로우를 설명합니다. `upstream 의존` |
+| `/qa-design-review` | 디자인 QA + 수정 워크플로우를 설명합니다. `upstream 의존` |
+| `/browse` | 브라우저 기반 QA 워크플로우를 설명합니다. `reference-only`, `upstream 의존` |
+| `/setup-browser-cookies` | 브라우저 cookie import 흐름을 설명합니다. `reference-only`, `upstream 의존` |
+
+### 운영과 릴리스
+
+| 스킬 | 설명 |
+|---|---|
+| `/ship` | 배포 직전 브랜치 정리와 릴리스 흐름을 돕습니다. |
+| `/document-release` | 배포 후 문서 갱신 흐름을 설명합니다. |
+| `/land-and-deploy` | 배포 절차를 설명합니다. `upstream 의존` |
+| `/canary` | canary 배포 워크플로우를 설명합니다. `upstream 의존` |
+| `/benchmark` | 성능/비교 측정 워크플로우를 설명합니다. `upstream 의존` |
+| `/gstack-upgrade` | upstream 설치본을 기준으로 업그레이드 흐름을 설명합니다. `upstream 의존` |
+| `/retro` | 팀과 개인 관점의 회고를 구조화합니다. |
+
+### 유틸리티와 안전
+
+| 스킬 | 설명 |
+|---|---|
+| `/codex` | Codex 환경에서의 작업 가이드를 제공합니다. |
+| `/cso` | 보안 검토 계열 문서를 제공합니다. |
+| `/careful` | 신중한 실행 모드의 reference 문서를 제공합니다. |
+| `/freeze` | 변경 동결 워크플로우를 설명합니다. |
+| `/guard` | 가드레일 중심 워크플로우를 설명합니다. |
+| `/unfreeze` | 동결 해제 워크플로우를 설명합니다. |
+
 ## 저장소 정체성
 
 `gstack-ko`는 독립 실행 포크가 아니라, upstream gstack의 스킬 문서와 운영 문서를 한국어로 제공하는 저장소입니다. 한 줄로 말하면 `문서/스킬 저장소`입니다.
@@ -15,6 +70,8 @@
 - 한국어 `SKILL.md`를 제공합니다.
 - 한국어 README / CONTRIBUTING / ARCHITECTURE / CHANGELOG / AGENTS 같은 문서를 제공합니다.
 - upstream sync 시 무엇을 가져오고 무엇을 제외할지 공개 규칙으로 관리합니다.
+
+핵심 스킬 문서는 이 저장소 안에서 그대로 `SKILL.md`로 유지합니다. `SKILL.ko.md` 같은 병행 파일은 운영하지 않습니다. 이 저장소 자체가 한국어 reference layer이기 때문입니다.
 
 ## 이 저장소가 하지 않는 일
 
@@ -24,6 +81,8 @@
 
 중요한 점은 간단합니다. **이 저장소는 문서 저장소이고, 실제 실행의 진실 원천은 upstream `gstack`입니다.**
 
+브라우저, QA, cookie import, upgrade처럼 실행 환경에 의존하는 기능은 **이 저장소만으로 실행되지 않습니다.** 실제 실행은 upstream `gstack`를 기준으로 해야 합니다.
+
 ## 포함 범위
 
 | 항목 | gstack-ko | upstream gstack |
@@ -31,10 +90,17 @@
 | 한국어 `SKILL.md` | ✅ | ❌ |
 | 한국어 운영 문서 | ✅ | ❌ |
 | supporting docs / reference docs | ✅ | ✅ |
+| 정책 및 sync 문서 | ✅ | ❌ |
 | 실행 코드 | ❌ | ✅ |
 | 테스트 / fixture | ❌ | ✅ |
 | 빌드 / 설치 체계 | ❌ | ✅ |
 | 바이너리 | ❌ | ✅ |
+
+## 어떤 사람이 보면 좋은가
+
+- gstack의 스킬과 운영 방식을 한국어로 이해하고 싶은 사용자
+- upstream 변경을 한국어 문서에 반영하는 기여자
+- 한국어 스킬 문구와 워크플로우 설명을 참고하고 싶은 팀
 
 ## 제공하는 것
 
