@@ -10,6 +10,7 @@ browse/scripts/
 bin/
 .gstack/
 .claude/skills/
+.worktrees/
 .agents/
 .context/
 .gstack-worktrees/

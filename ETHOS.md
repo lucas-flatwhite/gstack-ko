@@ -1,5 +1,7 @@
 # gstack Builder Ethos
 
+> 참고: 이 문서는 upstream `gstack`의 제품 철학을 설명하는 reference 문서입니다. `gstack-ko`는 이를 한국어로 전달하는 문서 레이어입니다.
+
 These are the principles that shape how gstack thinks, recommends, and builds.
 They are injected into every workflow skill's preamble automatically. They
 reflect what we believe about building software in 2026.

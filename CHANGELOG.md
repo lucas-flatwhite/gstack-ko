@@ -1,5 +1,13 @@
 # Changelog
 
+## [ko-docs-only] - 2026-03-29
+
+- `gstack-ko`를 독립 포크가 아닌 한국어 문서/스킬 레이어로 다시 정의했습니다.
+- `docs/translation-sync-policy.md`를 추가해 upstream sync와 PR 리뷰 기준을 공개 규칙으로 문서화했습니다.
+- README, AGENTS, CONTRIBUTING, CLAUDE, TODOS를 문서 전용 저장소 방향에 맞게 다시 작성했습니다.
+- 각 `SKILL.md`는 upstream 설치본을 기준으로 한 한국어 reference라는 점을 명확히 하도록 정리했습니다.
+- 코드가 아닌 자산만 남긴다는 원칙에 따라 `sync-cleanup.sh`를 제거했습니다.
+
 ## [0.11.14.0] - 2026-03-24 — Windows Browse Fix
 
 ### Fixed
