@@ -5,7 +5,7 @@
 
 > **`gstack-ko`는 [garrytan/gstack](https://github.com/garrytan/gstack)의 한국어 문서/스킬 레이어입니다.**
 
-원본 저장소: https://github.com/garrytan/gstack  
+원본 저장소: https://github.com/garrytan/gstack<br>
 원작자: [Garry Tan](https://x.com/garrytan)
 
 ## 저장소 정체성
