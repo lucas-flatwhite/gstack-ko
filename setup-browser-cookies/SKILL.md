@@ -10,8 +10,8 @@ allowed-tools:
   - Read
   - AskUserQuestion
 ---
-<!-- AUTO-GENERATED from SKILL.md.tmpl — do not edit directly -->
-<!-- Regenerate: bun run gen:skill-docs -->
+
+> Reference-only note: 이 저장소에는 cookie import를 실제 수행하는 `browse` 런타임과 `setup` 스크립트가 없습니다. 아래 내용은 upstream `garrytan/gstack` 설치본에서 사용하는 흐름을 한국어로 설명한 것입니다.
 
 ## Preamble (먼저 실행)
 

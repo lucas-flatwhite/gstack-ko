@@ -12,8 +12,8 @@ allowed-tools:
   - AskUserQuestion
 
 ---
-<!-- AUTO-GENERATED from SKILL.md.tmpl — do not edit directly -->
-<!-- Regenerate: bun run gen:skill-docs -->
+
+> Reference-only note: 이 저장소에는 `browse` 바이너리와 실행 코드는 없습니다. 아래 워크플로우는 upstream `garrytan/gstack` 설치본을 기준으로 한 한국어 설명입니다.
 
 ## Preamble (먼저 실행)
 

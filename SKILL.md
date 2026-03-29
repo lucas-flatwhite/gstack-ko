@@ -10,6 +10,8 @@ allowed-tools:
   - AskUserQuestion
 ---
 
+> Reference-only note: 이 저장소는 `browse` 바이너리, `setup` 스크립트, 테스트를 포함하지 않습니다. 아래 내용은 upstream `garrytan/gstack` 설치본의 동작을 설명하는 한국어 reference이며, 실제 실행은 upstream 환경을 기준으로 해야 합니다.
+
 ## Update Check (먼저 실행)
 
 ```bash

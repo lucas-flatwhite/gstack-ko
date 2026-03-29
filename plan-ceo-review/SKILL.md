@@ -13,9 +13,6 @@ allowed-tools:
   - Bash
   - AskUserQuestion
 ---
-<!-- AUTO-GENERATED from SKILL.md.tmpl — do not edit directly -->
-<!-- Regenerate: bun run gen:skill-docs -->
-
 ## Preamble (먼저 실행)
 
 ```bash

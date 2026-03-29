@@ -14,9 +14,6 @@ allowed-tools:
   - AskUserQuestion
   - WebSearch
 ---
-<!-- AUTO-GENERATED from SKILL.md.tmpl — do not edit directly -->
-<!-- Regenerate: bun run gen:skill-docs -->
-
 ## 프리앰블 (먼저 실행)
 
 ```bash

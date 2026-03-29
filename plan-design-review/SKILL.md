@@ -14,8 +14,8 @@ allowed-tools:
   - Write
   - AskUserQuestion
 ---
-<!-- AUTO-GENERATED from SKILL.md.tmpl — do not edit directly -->
-<!-- Regenerate: bun run gen:skill-docs -->
+
+> Reference-only note: 이 저장소에는 디자인 감사를 실행하는 `browse` 런타임이 포함되지 않습니다. 아래 워크플로우는 upstream `garrytan/gstack` 설치본을 기준으로 한 한국어 reference입니다.
 
 ## Preamble (run first)
 

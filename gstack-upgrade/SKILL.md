@@ -10,8 +10,8 @@ allowed-tools:
   - Write
   - AskUserQuestion
 ---
-<!-- AUTO-GENERATED from SKILL.md.tmpl — do not edit directly -->
-<!-- Regenerate: bun run gen:skill-docs -->
+
+> Reference-only note: 이 저장소는 업그레이드 대상이 아니라 한국어 문서 저장소입니다. 아래 내용은 upstream `garrytan/gstack` 설치본을 업그레이드할 때 참고하는 한국어 설명입니다.
 
 # /gstack-upgrade
 

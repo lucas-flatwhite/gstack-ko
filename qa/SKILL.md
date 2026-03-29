@@ -17,8 +17,8 @@ allowed-tools:
   - Grep
   - AskUserQuestion
 ---
-<!-- AUTO-GENERATED from SKILL.md.tmpl — do not edit directly -->
-<!-- Regenerate: bun run gen:skill-docs -->
+
+> Reference-only note: 이 저장소에는 QA 실행에 필요한 `browse` 런타임과 관련 코드가 없습니다. 아래 지침은 upstream `garrytan/gstack` 설치본을 기준으로 한 한국어 reference입니다.
 
 ## Preamble (먼저 실행)
 
