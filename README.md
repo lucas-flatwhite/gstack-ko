@@ -3,6 +3,19 @@
 
 # gstack-ko
 
+> [!IMPORTANT]
+> **This repository is no longer updated.**
+>
+> I am always making projects that are more fun and more helpful. You can find them on [GitHub](https://github.com/lucas-flatwhite) and at [lucasflatwhite.com](https://lucasflatwhite.com).
+>
+> Thank you, always. — Lucas
+>
+> **이 저장소는 더 이상 업데이트되지 않습니다.**
+>
+> 더 재미있고 도움이 되는 프로젝트를 언제나 만들고 있습니다. [GitHub](https://github.com/lucas-flatwhite)과 [lucasflatwhite.com](https://lucasflatwhite.com)에서 만나보실 수 있습니다.
+>
+> 늘 감사드립니다. 루카스 드림.
+
 > **`gstack-ko`는 [garrytan/gstack](https://github.com/garrytan/gstack)의 한국어 문서/스킬 레이어입니다.**
 
 원본 저장소: https://github.com/garrytan/gstack<br>
